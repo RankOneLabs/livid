@@ -35,6 +35,22 @@ describe('document', () => {
     expect(svg).toContain('aria-label="Example pipeline"');
     expect(svg).toContain('<title>Example pipeline</title>');
   });
+
+  it('claims no role without a name to go with it', () => {
+    // role="img" alone makes a screen reader announce an unnamed image.
+    const svg = renderSvg(diagram);
+    expect(svg).not.toContain('role="img"');
+  });
+
+  it('stays a finite document when there is nothing to draw', async () => {
+    const empty = await laidOut({ nodes: [], edges: [] });
+    const svg = renderSvg(empty);
+
+    expect(svg).not.toContain('Infinity');
+    expect(svg).not.toContain('NaN');
+    const opening = svg.slice(0, svg.indexOf('>') + 1);
+    expect(Number(/height="([\d.]+)"/.exec(opening)?.[1])).toBeGreaterThan(0);
+  });
 });
 
 describe('content', () => {
@@ -155,6 +171,23 @@ describe('drill-down levels', () => {
   it('draws only the top level when asked for root', () => {
     const svg = renderSvg(diagram, { levels: 'root' });
     expect(svg).not.toContain('>step one<');
+  });
+
+  it('rules off between stacked levels, and nowhere else', () => {
+    const divider = new RegExp(`stroke="${DEFAULT_PALETTE.divider}"`, 'g');
+    // Two levels in the fixture, so exactly one rule between them.
+    expect((renderSvg(diagram).match(divider) ?? []).length).toBe(1);
+    expect(renderSvg(diagram, { levels: 'root' }).match(divider)).toBeNull();
+  });
+
+  it('draws the rule with a visible stroke at a real position', () => {
+    const svg = renderSvg(diagram);
+    const rule = new RegExp(`<line x1="[\\d.]+" y1="([\\d.]+)"[^>]*stroke="${DEFAULT_PALETTE.divider}" stroke-width="([\\d.]+)"`);
+    const match = rule.exec(svg);
+
+    expect(match).not.toBeNull();
+    expect(Number(match?.[1])).toBeGreaterThan(0);
+    expect(Number(match?.[2])).toBeGreaterThan(0);
   });
 });
 

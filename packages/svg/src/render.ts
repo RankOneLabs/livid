@@ -13,7 +13,7 @@
 
 import type { AnyRegistry, LaidOutDiagram, LaidOutEdge, LaidOutNode, Point } from '@rankonelabs/livid-core';
 
-import { type Box, boxAround, boxOf, placeLabel, unionOf } from './geometry.js';
+import { type Box, EMPTY_BOX, boxAround, boxOf, placeLabel, unionOf, withExtent } from './geometry.js';
 import { glyphMarkup, shapeMarkup } from './shapes.js';
 import { type SvgTheme, type SvgThemeOverrides, lineColour, resolveTheme } from './theme.js';
 
@@ -49,13 +49,19 @@ export function renderSvg<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, opt
     placed.reduce((total, level) => total + heightOf(level, captionHeight) + levelGap, 0) - levelGap + padding * 2;
 
   const body = placed
-    .map((level) => {
+    .map((level, index) => {
       const captionY = level.top + theme.typography.captionSize;
       const contentTop = level.caption === null ? level.top : level.top + captionHeight;
       const shiftX = padding - level.box.minX;
       const shiftY = contentTop - level.box.minY;
 
       return [
+        // A rule across the gap, so a stack of levels reads as separate maps
+        // rather than one that happens to have blank rows in it.
+        index === 0
+          ? ''
+          : `<line x1="${padding}" y1="${round(level.top - levelGap / 2)}" x2="${round(width - padding)}" ` +
+            `y2="${round(level.top - levelGap / 2)}" stroke="${theme.palette.divider}" stroke-width="1"/>`,
         level.caption === null
           ? ''
           : `<text x="${padding}" y="${round(captionY)}" font-family="${escapeAttr(theme.typography.captionFamily)}" ` +
@@ -67,13 +73,17 @@ export function renderSvg<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, opt
         .filter((part) => part !== '')
         .join('\n');
     })
-    .join(`\n<line x1="${padding}" x2="${round(width - padding)}" y1="0" y2="0" stroke="${theme.palette.divider}" stroke-width="0"/>\n`);
+    .join('\n');
 
   const title = options.title ?? null;
 
   return [
+    // `role="img"` is only correct alongside an accessible name; on its own it
+    // makes a screen reader announce an unnamed image. Without a title the
+    // element is left alone rather than hidden — a diagram is content, and
+    // `aria-hidden` would mean a screen reader user is never told it exists.
     `<svg xmlns="http://www.w3.org/2000/svg" width="${round(width)}" height="${round(height)}" ` +
-      `viewBox="0 0 ${round(width)} ${round(height)}" role="img"${title === null ? '' : ` aria-label="${escapeAttr(title)}"`}>`,
+      `viewBox="0 0 ${round(width)} ${round(height)}"${title === null ? '' : ` role="img" aria-label="${escapeAttr(title)}"`}>`,
     title === null ? '' : `<title>${escapeText(title)}</title>`,
     `<rect width="100%" height="100%" fill="${theme.palette.surface}"/>`,
     body,
@@ -138,13 +148,11 @@ function renderLevel<R extends AnyRegistry>(level: Level<R>, theme: SvgTheme): R
   const edges = diagram.edges.map((edge) => renderEdge(edge, lineOfNode, colourOf, theme));
   const nodes = diagram.nodes.map((node) => renderNode(node, diagram, colourOf, theme));
 
-  const box = unionOf([...edges.map((part) => part.box), ...nodes.map((part) => part.box)]);
-
   // Edges first so tracks pass under stations rather than over them.
   return {
     caption: level.caption,
     markup: [...edges.map((part) => part.markup), ...nodes.map((part) => part.markup)].join('\n'),
-    box,
+    box: withExtent(unionOf([...edges.map((part) => part.box), ...nodes.map((part) => part.box)])),
   };
 }
 
@@ -169,7 +177,9 @@ function renderEdge<R extends AnyRegistry>(
   const branching = sourceLine !== targetLine;
   const weight = branching ? theme.metrics.branchWeight : theme.metrics.lineWeight;
 
-  if (edge.route.length < 2) return { markup: '', box: { ...EMPTY } };
+  // Nothing to draw and nothing to reserve, so the identity box keeps it out
+  // of the union rather than pinning it to the origin.
+  if (edge.route.length < 2) return { markup: '', box: EMPTY_BOX };
 
   const points = edge.route.map((point: Point) => `${round(point.x)},${round(point.y)}`).join(' ');
 
@@ -180,8 +190,6 @@ function renderEdge<R extends AnyRegistry>(
     box: boxAround(edge.route, weight / 2),
   };
 }
-
-const EMPTY: Box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 
 function renderNode<R extends AnyRegistry>(
   placed: LaidOutNode<R>,

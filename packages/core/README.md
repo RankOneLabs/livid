@@ -80,8 +80,9 @@ transit diagram rather than a flowchart, and its cost lands at build time.
 
 ## Renderers
 
-`@rankonelabs/livid-svg` and `@rankonelabs/livid-react` accept `LaidOutDiagram`.
-Neither exists yet. Layout lives here rather than in each renderer, which is what
-makes the SVG in a post and the React canvas in an app the *same map*.
+`@rankonelabs/livid-svg` renders a `LaidOutDiagram` to an SVG string at build
+time; `@rankonelabs/livid-react` is still to come. Layout lives here rather than
+in each renderer, which is what makes the SVG in a post and the React canvas in
+an app the *same map*.
 
 Full documentation: <https://github.com/RankOneLabs/livid>

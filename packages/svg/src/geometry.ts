@@ -24,7 +24,26 @@ export function boxOf(position: Point, size: Size): Box {
   };
 }
 
+/**
+ * The identity for `unionOf`: infinities so that any real box wins on both
+ * sides. It is never a valid *result* — see `withExtent`.
+ */
 export const EMPTY_BOX: Box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
+export const ZERO_BOX: Box = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+/**
+ * Collapse a box with no contents to zero.
+ *
+ * A union over nothing — an empty diagram, or a level whose every edge was
+ * dropped for having no route — returns the identity, and those infinities
+ * otherwise reach the document as `height="-Infinity"`.
+ */
+export function withExtent(box: Box): Box {
+  const finite =
+    Number.isFinite(box.minX) && Number.isFinite(box.minY) && Number.isFinite(box.maxX) && Number.isFinite(box.maxY);
+  return finite ? box : ZERO_BOX;
+}
 
 export function unionOf(boxes: readonly Box[]): Box {
   return boxes.reduce(
