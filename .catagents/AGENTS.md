@@ -4,7 +4,7 @@ Living diagrams: system maps derived from schema, where every node and edge is
 real and drills down into the payload flowing through it. Dense systems made
 legible by progressive disclosure rather than by leaving things out.
 
-A monorepo of three packages. Only `core` exists so far.
+A monorepo of three packages. Only `react` is still to come.
 
 | Package | Role |
 |---|---|
@@ -51,6 +51,23 @@ and the React canvas in an app the *same map* rather than two drawings that drif
   are core's.
 
 Detail views are derived from the type's schema rather than hand-written per type.
+
+A renderer's visual language is config too — palette, typography, metrics — never
+injected markup. `LineSpec.color` is a *token*, not a colour: core has no palette, and
+each renderer resolves tokens against its own.
+
+## Renderers draw; they never decide
+
+A renderer measures nothing and lays out nothing. Geometry arrives already computed, so
+anything a renderer works out for itself must be something core cannot know.
+
+There is exactly one such thing today, and it is labels. Core sizes a node from its
+label, but `circle` and `diamond` are fixed-width — growing one distorts it past
+recognition, and shape carries type — so their labels sit *beside* the node with a
+leader tick, the way a transit map names a junction. Box shapes carry their own text.
+The viewport must include outside labels; a clipped name is a bug.
+
+Text is estimated, never measured — there is no DOM at build time. Estimates err wide.
 
 ## Vocabulary is registered, not enumerated
 

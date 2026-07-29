@@ -1,0 +1,77 @@
+# @rankonelabs/livid-svg
+
+`LaidOutDiagram` to an SVG string, for [livid](https://github.com/RankOneLabs/livid).
+
+Build-time only. No DOM, no client JS, and nothing measured — geometry arrives
+from [`@rankonelabs/livid-core`](https://www.npmjs.com/package/@rankonelabs/livid-core)
+already computed, so this package draws and does not lay out. That is what makes
+the SVG in a post and the React canvas in an app the *same map* rather than two
+drawings that drifted.
+
+## Install
+
+```
+npm install @rankonelabs/livid-svg @rankonelabs/livid-core
+```
+
+Core is a peer dependency, and the only one. Nothing is imported at runtime —
+this package emits zero dependencies of its own.
+
+## Use
+
+```ts
+import { layout, validateDiagram } from '@rankonelabs/livid-core'
+import { renderSvg } from '@rankonelabs/livid-svg'
+
+const valid = validateDiagram(registry, spec)
+if (!valid.ok) return valid.error
+
+const laid = await layout(valid.value)
+if (!laid.ok) return laid.error
+
+const svg = renderSvg(laid.value, {
+  title: 'Refund approval at HITL',
+  theme: { palette: { lines: { 'line-critical': '#D64500', 'line-parallel': '#1B6CA8' } } },
+})
+```
+
+## Labels
+
+Boxes carry their own text. Circles and diamonds cannot — core holds them to a
+fixed width because growing one distorts it past recognition, and shape carries
+type — so their labels sit alongside with a leader tick, which is also how a
+transit map names a junction. Set `metrics.labelSide` to `right` for a
+top-to-bottom layout.
+
+Text is estimated rather than measured (there is no DOM at build time) and the
+estimate errs wide: a label with room to spare reads fine, a clipped one does
+not. The viewport always includes outside labels, so nothing is cut off.
+
+## Colour
+
+`LineSpec.color` is a token, not a colour — core has no palette. Configure
+tokens through `palette.lines`; any token left unconfigured takes a colour from
+`palette.ramp` by line order, so an unthemed diagram still renders as a map
+rather than one grey tangle.
+
+An edge takes the colour of where it is *going*. Track between two stations on
+one line is that line; track leaving a router onto another line already belongs
+to the new one, which is what makes an interchange read as a change. Edges that
+cross lines are drawn at `branchWeight`, lighter than the track they leave.
+
+## Drill-down
+
+Levels are stacked, not made interactive: a static file has to contain every
+level it can reveal, and stacking reveals them without script. Pass
+`levels: 'root'` to draw only the top. Descending on demand belongs to the React
+renderer.
+
+Feed it `layoutDeep()` output if you want nested levels to have geometry.
+
+## Configuration
+
+Everything visual is config — `palette`, `typography`, `metrics` — and nothing
+is component injection. Both renderers are closed, which is what guarantees they
+agree.
+
+MIT.

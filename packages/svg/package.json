@@ -1,0 +1,48 @@
+{
+  "name": "@rankonelabs/livid-svg",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "LaidOutDiagram to SVG string. Build-time, zero client JS.",
+  "license": "MIT",
+  "keywords": [
+    "diagram",
+    "svg",
+    "architecture",
+    "static-site"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RankOneLabs/livid.git",
+    "directory": "packages/svg"
+  },
+  "homepage": "https://github.com/RankOneLabs/livid#readme",
+  "bugs": "https://github.com/RankOneLabs/livid/issues",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "check": "tsc -b",
+    "prepublishOnly": "tsc -b --force"
+  },
+  "peerDependencies": {
+    "@rankonelabs/livid-core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@rankonelabs/livid-core": "^0.1.0"
+  }
+}
