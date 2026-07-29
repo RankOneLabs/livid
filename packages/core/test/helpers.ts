@@ -30,3 +30,8 @@ export function objectWithString(field: string): StandardSchemaV1<unknown, Recor
 export const asyncSchema = schema<unknown>(
   (value) => Promise.resolve({ value }) as unknown as StandardSchemaV1.Result<unknown>,
 );
+
+/** Throws instead of returning issues — validators are foreign code. */
+export const throwingSchema = schema<unknown>(() => {
+  throw new Error('refinement exploded');
+});

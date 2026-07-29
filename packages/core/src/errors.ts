@@ -76,14 +76,25 @@ export type DiagramError =
     }
   | {
       /**
-       * A schema returned a promise. Layout runs at build time and core is
-       * synchronous throughout, so async refinements are rejected rather than
-       * silently awaited.
+       * A schema returned a promise. Validation is synchronous, so async
+       * refinements are rejected rather than silently awaited.
        */
       readonly kind: 'async_schema';
       readonly path: DiagramPath;
       readonly entityId: string;
       readonly type: string;
+    }
+  | {
+      /**
+       * A schema threw instead of returning issues. Validators are foreign
+       * code, so the call is an IO-style boundary: catch there, convert to a
+       * value, and keep the errors-as-values contract intact for callers.
+       */
+      readonly kind: 'schema_threw';
+      readonly path: DiagramPath;
+      readonly entityId: string;
+      readonly type: string;
+      readonly message: string;
     }
   | {
       /**
@@ -150,6 +161,8 @@ export function formatError(error: DiagramError): string {
       return `edge "${error.edgeId}" changes line from "${error.fromLine ?? 'none'}" to "${error.toLine ?? 'none'}" at "${error.sourceId}" (${error.sourceType}), which does not route`;
     case 'async_schema':
       return `schema for "${error.type}" (on "${error.entityId}") returned a promise; core validation is synchronous`;
+    case 'schema_threw':
+      return `schema for "${error.type}" (on "${error.entityId}") threw instead of returning issues: ${error.message}`;
     case 'registry_overflow':
       return `registry declares ${error.count} ${error.axis}, above the discipline limit of ${error.limit}`;
   }

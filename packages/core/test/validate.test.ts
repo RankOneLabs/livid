@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { type DiagramSpec, defineRegistry, validateConfig, validateDiagram } from '../src/index.js';
-import { anything, asyncSchema, objectWithString } from './helpers.js';
+import { anything, asyncSchema, objectWithString, throwingSchema } from './helpers.js';
 
 const registry = defineRegistry({
   nodeTypes: {
@@ -155,6 +155,52 @@ describe('validateDiagram', () => {
     if (result.ok) throw new Error('expected rejection');
     expect(result.error[0]?.kind).toBe('async_schema');
   });
+
+  it('catches a schema that throws rather than letting it escape', () => {
+    const throwingRegistry = defineRegistry({
+      nodeTypes: { client: { label: 'Client', detail: throwingSchema, shape: 'stadium', isRouter: false } },
+      edgeTypes: { flow: { label: 'Flow', detail: anything } },
+    });
+    const result = validateDiagram(throwingRegistry, { nodes: [{ id: 'a', type: 'client', label: 'x' }], edges: [] });
+    if (result.ok) throw new Error('expected rejection');
+    const [error] = result.error;
+    expect(error?.kind === 'schema_threw' && error.message).toBe('refinement exploded');
+  });
+
+  it('catches a throwing edge schema too', () => {
+    const throwingRegistry = defineRegistry({
+      nodeTypes: { client: { label: 'Client', detail: anything, shape: 'stadium', isRouter: false } },
+      edgeTypes: { flow: { label: 'Flow', detail: throwingSchema } },
+    });
+    const result = validateDiagram(throwingRegistry, {
+      nodes: [
+        { id: 'a', type: 'client', label: 'A' },
+        { id: 'b', type: 'client', label: 'B' },
+      ],
+      edges: [{ id: 'e1', type: 'flow', source: 'a', target: 'b' }],
+    });
+    if (result.ok) throw new Error('expected rejection');
+    expect(result.error[0]?.kind).toBe('schema_threw');
+  });
+
+  it('keeps collecting after a throwing schema rather than aborting the pass', () => {
+    const throwingRegistry = defineRegistry({
+      nodeTypes: {
+        boom: { label: 'Boom', detail: throwingSchema, shape: 'rect', isRouter: false },
+        client: { label: 'Client', detail: anything, shape: 'stadium', isRouter: false },
+      },
+      edgeTypes: { flow: { label: 'Flow', detail: anything } },
+    });
+    const result = validateDiagram(throwingRegistry, {
+      nodes: [
+        { id: 'a', type: 'boom', label: 'A' },
+        { id: 'b', type: 'wormhole', label: 'B' },
+      ],
+      edges: [],
+    });
+    if (result.ok) throw new Error('expected rejection');
+    expect(result.error.map((error) => error.kind)).toEqual(['schema_threw', 'unknown_node_type']);
+  });
 });
 
 describe('branching is router-only', () => {
@@ -243,5 +289,25 @@ describe('validateConfig', () => {
   it('refuses a promise instead of awaiting it', () => {
     const result = validateConfig(asyncSchema, {});
     expect(!result.ok && result.error.kind).toBe('async');
+  });
+
+  it('converts a thrown error into a value rather than propagating it', () => {
+    expect(() => validateConfig(throwingSchema, {})).not.toThrow();
+    const result = validateConfig(throwingSchema, {});
+    expect(!result.ok && result.error.kind === 'threw' && result.error.message).toBe('refinement exploded');
+  });
+
+  it('describes a non-Error throw', () => {
+    const stringThrower = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'livid-test',
+        validate: () => {
+          throw 'just a string';
+        },
+      },
+    };
+    const result = validateConfig(stringThrower, {});
+    expect(!result.ok && result.error.kind === 'threw' && result.error.message).toBe('just a string');
   });
 });

@@ -15,18 +15,28 @@ export interface ValidateOptions {
 
 export type ConfigError =
   | { readonly kind: 'issues'; readonly issues: readonly DetailIssue[] }
-  | { readonly kind: 'async' };
+  | { readonly kind: 'async' }
+  | { readonly kind: 'threw'; readonly message: string };
 
 /**
  * Validate one detail bag against its registered schema. Core writes this
  * handler once; it works for zod, valibot, arktype, or an ajv wrapper,
  * because all of them expose the same `~standard` entry point.
+ *
+ * The validator is foreign code, so this call is an IO-style boundary: a
+ * throwing refinement is caught and converted to a value rather than escaping
+ * past a caller who is correctly handling `Result`.
  */
 export function validateConfig<S extends StandardSchemaV1>(
   schema: S,
   config: unknown,
 ): Result<StandardSchemaV1.InferOutput<S>, ConfigError> {
-  const outcome = schema['~standard'].validate(config);
+  let outcome: StandardSchemaV1.Result<unknown> | Promise<StandardSchemaV1.Result<unknown>>;
+  try {
+    outcome = schema['~standard'].validate(config);
+  } catch (cause) {
+    return err({ kind: 'threw', message: describe(cause) });
+  }
 
   if (isPromise(outcome)) {
     return err({ kind: 'async' });
@@ -37,6 +47,11 @@ export function validateConfig<S extends StandardSchemaV1>(
   }
 
   return ok(outcome.value);
+}
+
+function describe(cause: unknown): string {
+  if (cause instanceof Error) return cause.message;
+  return String(cause);
 }
 
 /**
@@ -114,11 +129,7 @@ function validateLevel<R extends AnyRegistry>(
 
     const detail = validateConfig(typeDef.detail, nodeSpec.detail);
     if (!detail.ok) {
-      errors.push(
-        detail.error.kind === 'async'
-          ? { kind: 'async_schema', path, entityId: nodeSpec.id, type: nodeSpec.type }
-          : { kind: 'invalid_detail', path, nodeId: nodeSpec.id, type: nodeSpec.type, issues: detail.error.issues },
-      );
+      errors.push(toNodeError(detail.error, path, nodeSpec.id, nodeSpec.type));
       continue;
     }
 
@@ -176,17 +187,7 @@ function validateLevel<R extends AnyRegistry>(
 
     const detail = validateConfig(typeDef.detail, edgeSpec.detail);
     if (!detail.ok) {
-      errors.push(
-        detail.error.kind === 'async'
-          ? { kind: 'async_schema', path, entityId: edgeSpec.id, type: edgeSpec.type }
-          : {
-              kind: 'invalid_edge_detail',
-              path,
-              edgeId: edgeSpec.id,
-              type: edgeSpec.type,
-              issues: detail.error.issues,
-            },
-      );
+      errors.push(toEdgeError(detail.error, path, edgeSpec.id, edgeSpec.type));
       continue;
     }
 
@@ -237,6 +238,28 @@ function checkBranching<R extends AnyRegistry>(
     if (registry.nodeTypes[node.type]?.isRouter === true) continue;
 
     errors.push({ kind: 'illegal_branch', path, nodeId: node.id, type: node.type, outgoing: count });
+  }
+}
+
+function toNodeError(error: ConfigError, path: DiagramPath, nodeId: string, type: string): DiagramError {
+  switch (error.kind) {
+    case 'async':
+      return { kind: 'async_schema', path, entityId: nodeId, type };
+    case 'threw':
+      return { kind: 'schema_threw', path, entityId: nodeId, type, message: error.message };
+    case 'issues':
+      return { kind: 'invalid_detail', path, nodeId, type, issues: error.issues };
+  }
+}
+
+function toEdgeError(error: ConfigError, path: DiagramPath, edgeId: string, type: string): DiagramError {
+  switch (error.kind) {
+    case 'async':
+      return { kind: 'async_schema', path, entityId: edgeId, type };
+    case 'threw':
+      return { kind: 'schema_threw', path, entityId: edgeId, type, message: error.message };
+    case 'issues':
+      return { kind: 'invalid_edge_detail', path, edgeId, type, issues: error.issues };
   }
 }
 

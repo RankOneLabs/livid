@@ -3,8 +3,9 @@
  *
  * Vendored rather than depended on: the spec package is types-only, the shape
  * is structural, and any conforming validator satisfies this copy identically.
- * Core therefore has zero dependencies while still accepting any validation
- * library the consumer already uses.
+ * Core therefore carries no validation dependency while still accepting any
+ * validation library the consumer already uses. (elkjs, for layout, is core's
+ * one runtime dependency.)
  *
  * Source of truth: https://github.com/standard-schema/standard-schema
  */
