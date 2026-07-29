@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Living diagrams: schema-derived system maps with recursive drill-down.",
+  "license": "MIT",
   "engines": {
     "node": ">=20.19.0"
   },
@@ -11,7 +12,7 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "tsc -b packages/core && tsc -p packages/core/tsconfig.test.json",
+    "check": "tsc -b packages/core packages/svg && tsc -p packages/core/tsconfig.test.json && tsc -p packages/svg/tsconfig.test.json",
     "test": "vitest run",
     "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo",
     "agents:build": "./scripts/catagents",

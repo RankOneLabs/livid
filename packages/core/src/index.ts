@@ -1,5 +1,5 @@
 /**
- * @livid/core — headless. Config in, validated and laid-out view data out.
+ * @rankonelabs/livid-core — headless. Config in, validated and laid-out view data out.
  *
  *   DiagramSpec ──validate──▶ ValidDiagram ──layout──▶ LaidOutDiagram
  *   user-authored             core-only                core-only
