@@ -13,7 +13,9 @@
   "scripts": {
     "check": "tsc -b packages/core && tsc -p packages/core/tsconfig.test.json",
     "test": "vitest run",
-    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo"
+    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo",
+    "agents:build": "./scripts/catagents",
+    "agents:check": "./scripts/catagents --check"
   },
   "devDependencies": {
     "typescript": "~5.9.3",

@@ -1,0 +1,618 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( BASH_VERSINFO[0] < 4 )); then
+  printf 'catagents: Bash 4 or newer is required\n' >&2
+  exit 1
+fi
+
+readonly CATAGENTS_VERSION='catagents v1.0.0'
+
+# Soft byte-budget for generated outputs. 32 KiB matches Codex's
+# project_doc_max_bytes, which is the strictest mainstream agent budget;
+# outputs above this size still build but get a stderr warning so authors
+# notice context bloat. Set to 0 to silence the check.
+readonly CATAGENTS_SIZE_BUDGET=32768
+
+readonly CATAGENTS_USAGE='Usage: catagents [<command>] [--target=<value>]
+
+Commands:
+  (none) | build   Build every source under .catagents/ to its mirrored
+                   output path(s) per --target.
+  --check          Rebuild in memory and diff against the committed
+                   outputs. Exits 2 on any mismatch. For CI.
+  --dry-run        Print what would be written; touch no files.
+  init             Scaffold .catagents/AGENTS.md with a starter template.
+  --help           Print this help and exit.
+  --version        Print version and exit.
+
+Options:
+  --target=<value>  Which agent-doc basenames to emit per source:
+                    claude   only <dir>/CLAUDE.md
+                    agents   only <dir>/AGENTS.md
+                    both     both basenames, byte-identical (default)
+                    The source basename does NOT constrain the output;
+                    --target alone decides what gets written.
+
+Sources are any files under .catagents/ whose basename is exactly
+CLAUDE.md or AGENTS.md. Other files are ignored, so partials and drafts
+may live alongside sources. A directory under .catagents/ may contain at
+most ONE source (CLAUDE.md or AGENTS.md, not both) — having both is a
+collision and fails the build.
+
+Determinism: byte-identical output across runs requires that no imported
+file'"'"'s working tree is dirty. CI on a clean checkout meets this trivially.'
+
+usage() {
+  printf '%s\n' "$CATAGENTS_USAGE"
+}
+
+# Which output basenames to emit per source. Set by --target=<value>;
+# default 'both' is the agent-agnostic stance. See output_paths_for_source.
+TARGET='both'
+
+# Computes the mirrored output paths for one source under .catagents/, fanned
+# out per $TARGET. A source's basename (CLAUDE.md or AGENTS.md) is a free
+# choice and does NOT constrain the output — --target alone decides. Prints
+# one path per line on stdout. Examples (TARGET=both):
+#   .catagents/AGENTS.md            -> CLAUDE.md, AGENTS.md
+#   .catagents/kbbl/CLAUDE.md       -> kbbl/CLAUDE.md, kbbl/AGENTS.md
+output_paths_for_source() {
+  local source=$1
+  local rel=${source#.catagents/}
+  local dir
+  dir=$(dirname -- "$rel")
+  local prefix=''
+  if [[ $dir != . ]]; then
+    prefix="$dir/"
+  fi
+  case $TARGET in
+    claude)
+      printf '%s\n' "${prefix}CLAUDE.md"
+      ;;
+    agents)
+      printf '%s\n' "${prefix}AGENTS.md"
+      ;;
+    both)
+      printf '%s\n' "${prefix}CLAUDE.md" "${prefix}AGENTS.md"
+      ;;
+  esac
+}
+
+# Maps an output path to its build target by basename: CLAUDE.md -> claude,
+# AGENTS.md -> agents. Used to pick which target-conditional blocks survive in
+# each fanned-out output (see filter_target_blocks).
+target_of_output_path() {
+  case ${1##*/} in
+    CLAUDE.md) printf 'claude\n' ;;
+    AGENTS.md) printf 'agents\n' ;;
+  esac
+}
+
+require_catagents_dir() {
+  if [[ ! -d .catagents ]]; then
+    printf 'catagents: no .catagents/ directory; run "catagents init"\n' >&2
+    exit 1
+  fi
+}
+
+# Populates DISCOVERED_SOURCES with every .catagents/ file whose basename is
+# exactly CLAUDE.md or AGENTS.md, sorted lexicographically. Other files are
+# ignored so authors can keep partials, drafts, or notes alongside sources.
+# Fails with a clear message if a single directory under .catagents/ contains
+# BOTH CLAUDE.md and AGENTS.md sources — that's an ambiguous source-of-truth
+# under the fan-out model and the author must consolidate to one.
+DISCOVERED_SOURCES=()
+discover_sources() {
+  DISCOVERED_SOURCES=()
+  local file base
+  while IFS= read -r -d '' file; do
+    base=${file##*/}
+    if [[ $base == CLAUDE.md || $base == AGENTS.md ]]; then
+      DISCOVERED_SOURCES+=("$file")
+    fi
+  done < <(find .catagents -type f -print0)
+
+  if (( ${#DISCOVERED_SOURCES[@]} > 1 )); then
+    local -a sorted=()
+    while IFS= read -r -d '' file; do
+      sorted+=("$file")
+    done < <(printf '%s\0' "${DISCOVERED_SOURCES[@]}" | LC_ALL=C sort -z)
+    DISCOVERED_SOURCES=("${sorted[@]}")
+  fi
+
+  local src dir
+  declare -A seen_dirs=()
+  for src in "${DISCOVERED_SOURCES[@]}"; do
+    dir=$(dirname -- "$src")
+    if [[ -n ${seen_dirs[$dir]:-} ]]; then
+      printf 'catagents: %s: both CLAUDE.md and AGENTS.md sources present; consolidate to one\n' "$dir" >&2
+      exit 1
+    fi
+    seen_dirs[$dir]=1
+  done
+}
+
+# Streams a source file to stdout, with fenced-code-block tracking. Lines
+# outside fences that match the @import directive form are emitted as
+# "IMPORT: <directive-path>"; all other lines pass through verbatim. The
+# scanner is the heart of the build pipeline — import resolution and output
+# assembly both run it. A fence opener/closer is a line whose
+# leading-whitespace-trimmed content begins with three or more backticks or
+# tildes; the closing fence must begin with the same character run as the
+# opener. Inside a fence, @import directives are emitted as literal text.
+scan_source() {
+  local path=$1
+  local line trimmed_lead trimmed_full
+  local in_fence=false
+  local fence_marker=''
+  local fence_open_re='^(`{3,}|~{3,})'
+  local import_re='^@(.+)$'
+  while IFS= read -r line || [[ -n $line ]]; do
+    trimmed_lead=${line#"${line%%[![:space:]]*}"}
+    if [[ $in_fence == false ]]; then
+      if [[ $trimmed_lead =~ $fence_open_re ]]; then
+        fence_marker=${BASH_REMATCH[1]}
+        in_fence=true
+        printf '%s\n' "$line"
+        continue
+      fi
+      trimmed_full=${trimmed_lead%"${trimmed_lead##*[![:space:]]}"}
+      if [[ $trimmed_full =~ $import_re ]]; then
+        printf 'IMPORT: %s\n' "${BASH_REMATCH[1]}"
+        continue
+      fi
+      printf '%s\n' "$line"
+    else
+      if [[ $trimmed_lead == "$fence_marker"* ]]; then
+        in_fence=false
+        fence_marker=''
+      fi
+      printf '%s\n' "$line"
+    fi
+  done < "$path"
+}
+
+# Resolves a single @import directive against its source file's location,
+# matching Claude Code's own @import semantics: ~/ expands against $HOME,
+# /... is absolute, anything else is relative to the source file's directory.
+# Hard-fails if the imported file does not exist or itself contains an
+# @import directive outside a fenced code block (v1 does not allow recursive
+# imports). Communicates results via two global out-variables because bash
+# functions cannot return multiple values cleanly: RESOLVED_PATH gets the
+# resolved on-disk path (may be relative to cwd for relative directives —
+# build runs with cwd fixed at the catagents repo root, so this is safe) and
+# RESOLVED_CONTENT gets the file contents with at most one trailing newline
+# stripped (assembly supplies the separator).
+RESOLVED_PATH=''
+RESOLVED_CONTENT=''
+resolve_import() {
+  local directive=$1
+  local source=$2
+  local resolved
+  # SC2088: literal '~/' prefix match on the directive string, not a tilde
+  # expansion. The directive comes from a source file (e.g. "~/foo/bar.md")
+  # and we are asking whether it starts with the two characters '~' '/'.
+  # shellcheck disable=SC2088
+  if [[ $directive == '~/'* ]]; then
+    # shellcheck disable=SC2088
+    resolved=${HOME}/${directive#'~/'}
+  elif [[ $directive == /* ]]; then
+    resolved=$directive
+  else
+    resolved=$(dirname -- "$source")/$directive
+  fi
+  if [[ ! -f $resolved ]]; then
+    printf 'catagents: %s: import not found: %s\n' "$source" "$directive" >&2
+    exit 1
+  fi
+  local repo_root resolved_dir resolved_real
+  repo_root=$(pwd -P)
+  resolved_dir=$(cd "$(dirname -- "$resolved")" && pwd -P)
+  resolved_real="${resolved_dir}/$(basename -- "$resolved")"
+  if [[ ${CATAGENTS_ALLOW_OUTSIDE_IMPORTS:-0} != 1 ]]; then
+    if [[ -L $resolved || ( $resolved_real != "$repo_root" && $resolved_real != "$repo_root"/* ) ]]; then
+      printf 'catagents: %s: import escapes repository: %s\n' "$source" "$directive" >&2
+      exit 1
+    fi
+  fi
+  resolved=$resolved_real
+  local scanned
+  scanned=$(scan_source "$resolved")
+  if grep -q '^IMPORT: ' <<< "$scanned"; then
+    printf 'catagents: %s: nested import in %s\n' "$source" "$directive" >&2
+    exit 1
+  fi
+  local content
+  content=$(cat -- "$resolved"; printf x)
+  content=${content%x}
+  content=${content%$'\n'}
+  RESOLVED_PATH=$resolved
+  RESOLVED_CONTENT=$content
+}
+
+# Prints the 12-char short SHA of the imported file's HEAD plus a "-dirty"
+# suffix when the file itself has uncommitted changes. Per-file dirty detection
+# (not per-repo) keeps the suffix meaningful as a context-staleness signal:
+# one unrelated dirty file shouldn't poison every import from the same repo.
+# Returns empty stdout when the path is not inside a git repo, which the
+# marker formatter renders as the non-git form.
+git_sha_for() {
+  local abs=$1
+  local dir
+  dir=$(dirname -- "$abs")
+  local sha
+  if ! sha=$(git -C "$dir" rev-parse HEAD 2>/dev/null); then
+    return 0
+  fi
+  sha=${sha:0:12}
+  local status
+  status=$(git -C "$dir" status --porcelain -- "$(basename -- "$abs")" 2>/dev/null || true)
+  if [[ -n $status ]]; then
+    printf '%s-dirty' "$sha"
+  else
+    printf '%s' "$sha"
+  fi
+}
+
+# Composes one source file's would-be output in memory. Populates BUILD_LINES
+# (array of output lines) without touching disk. Output assembly composes the
+# banner, the source's verbatim lines, and resolved imports wrapped in
+# literal-path markers. Markers carry per-file git provenance from git_sha_for;
+# whitespace around marker pairs is normalized so authors don't need to
+# remember to put blank lines around @import directives. Splitting this from
+# the disk write lets cmd_build, cmd_dry_run, and cmd_check share one source
+# of truth for what 'correct' output looks like; the per-target output paths
+# are computed independently via output_paths_for_source.
+BUILD_LINES=()
+compose_one() {
+  local source=$1
+  BUILD_LINES=()
+  BUILD_LINES+=('<!-- GENERATED by catagents — do not edit. Edit .catagents/ sources and re-run catagents. -->')
+  BUILD_LINES+=('')
+
+  local -a scanned=()
+  local sl
+  while IFS= read -r sl || [[ -n $sl ]]; do
+    scanned+=("$sl")
+  done < <(scan_source "$source")
+
+  local i n=${#scanned[@]}
+  local s directive sha marker_open marker_close content_line next_s
+  for ((i=0; i<n; i++)); do
+    s=${scanned[$i]}
+    if [[ $s == 'IMPORT: '* ]]; then
+      directive=${s#IMPORT: }
+      resolve_import "$directive" "$source"
+      sha=$(git_sha_for "$RESOLVED_PATH")
+      if [[ -n $sha ]]; then
+        marker_open="<!-- import: $directive @ $sha -->"
+      else
+        marker_open="<!-- import: $directive -->"
+      fi
+      marker_close="<!-- /import: $directive -->"
+
+      if [[ -n ${BUILD_LINES[${#BUILD_LINES[@]}-1]} ]]; then
+        BUILD_LINES+=('')
+      fi
+      BUILD_LINES+=("$marker_open")
+
+      if [[ -n $RESOLVED_CONTENT ]]; then
+        while IFS= read -r content_line || [[ -n $content_line ]]; do
+          BUILD_LINES+=("$content_line")
+        done <<< "$RESOLVED_CONTENT"
+      fi
+
+      BUILD_LINES+=("$marker_close")
+
+      if (( i+1 < n )); then
+        next_s=${scanned[$((i+1))]}
+        if [[ -n $next_s ]]; then
+          BUILD_LINES+=('')
+        fi
+      fi
+    else
+      BUILD_LINES+=("$s")
+    fi
+  done
+}
+
+# Filters target-conditional blocks out of the composed BUILD_LINES for one
+# build target, leaving FILTERED_LINES. A line `<!-- target:NAME -->` opens a
+# block kept only when NAME equals the target; `<!-- /target:NAME -->` closes
+# it. The marker lines are stripped from output; content outside any block is
+# always kept, so a source with no target blocks filters to BUILD_LINES
+# unchanged and the byte-identical fan-out is preserved. Markers inside fenced
+# code blocks are literal (consistent with @import), so the syntax can be
+# documented in a fence without being acted on. Hard-fails on an unknown target
+# name, a nested or mismatched block, or an unclosed block — structure is
+# validated for all blocks regardless of which target is being emitted.
+FILTERED_LINES=()
+filter_target_blocks() {
+  local want=$1
+  FILTERED_LINES=()
+  local line trimmed_lead name
+  local in_fence=false fence_marker=''
+  local fence_open_re='^(`{3,}|~{3,})'
+  # Capture any non-whitespace token (not just [A-Za-z]) and allow optional
+  # whitespace before --> so malformed-but-plausible markers (target:claude1,
+  # target:claude-code) are still RECOGNIZED as markers and hit the unknown-
+  # target check below, rather than slipping through to the content branch and
+  # leaking into output as literal text.
+  local open_re='^[[:space:]]*<!-- target:([^[:space:]]+)[[:space:]]*-->[[:space:]]*$'
+  local close_re='^[[:space:]]*<!-- /target:([^[:space:]]+)[[:space:]]*-->[[:space:]]*$'
+  local block=''   # active block target, empty when outside any block
+  for line in "${BUILD_LINES[@]}"; do
+    trimmed_lead=${line#"${line%%[![:space:]]*}"}
+    if [[ $in_fence == true ]]; then
+      if [[ $trimmed_lead == "$fence_marker"* ]]; then
+        in_fence=false
+        fence_marker=''
+      fi
+      if [[ -z $block || $block == "$want" ]]; then
+        FILTERED_LINES+=("$line")
+      fi
+      continue
+    fi
+    if [[ $trimmed_lead =~ $fence_open_re ]]; then
+      fence_marker=${BASH_REMATCH[1]}
+      in_fence=true
+      if [[ -z $block || $block == "$want" ]]; then
+        FILTERED_LINES+=("$line")
+      fi
+      continue
+    fi
+    if [[ $line =~ $open_re ]]; then
+      name=${BASH_REMATCH[1]}
+      if [[ $name != claude && $name != agents ]]; then
+        printf 'catagents: unknown target block: %s (expected claude or agents)\n' "$name" >&2
+        exit 1
+      fi
+      if [[ -n $block ]]; then
+        printf 'catagents: nested target block: %s inside %s\n' "$name" "$block" >&2
+        exit 1
+      fi
+      block=$name
+      continue
+    fi
+    if [[ $line =~ $close_re ]]; then
+      name=${BASH_REMATCH[1]}
+      if [[ -z $block ]]; then
+        printf 'catagents: unexpected /target:%s with no open block\n' "$name" >&2
+        exit 1
+      fi
+      if [[ $name != "$block" ]]; then
+        printf 'catagents: mismatched target block: opened %s, closed %s\n' "$block" "$name" >&2
+        exit 1
+      fi
+      block=''
+      continue
+    fi
+    if [[ -z $block || $block == "$want" ]]; then
+      FILTERED_LINES+=("$line")
+    fi
+  done
+  if [[ -n $block ]]; then
+    printf 'catagents: unclosed target block: %s\n' "$block" >&2
+    exit 1
+  fi
+}
+
+# Builds one source to disk: compose in memory, then write atomically via a
+# same-directory <out>.tmp + mv so a killed process can never leave a
+# half-written file on disk. With --target=both, the same composed bytes are
+# written to BOTH <dir>/CLAUDE.md and <dir>/AGENTS.md — the fan-out is the
+# whole point of the agent-agnostic stance. The size-budget warning fires
+# once per file actually written (not per source).
+build_one() {
+  local source=$1
+  compose_one "$source"
+  local -a out_paths=()
+  local p
+  while IFS= read -r p; do
+    out_paths+=("$p")
+  done < <(output_paths_for_source "$source")
+
+  local out out_dir tmp size tgt
+  for out in "${out_paths[@]}"; do
+    out_dir=$(dirname -- "$out")
+    mkdir -p -- "$out_dir"
+
+    tgt=$(target_of_output_path "$out")
+    filter_target_blocks "$tgt"
+
+    tmp=$(mktemp "${out}.tmp.XXXXXX")
+    if ! printf '%s\n' "${FILTERED_LINES[@]}" > "$tmp"; then
+      rm -f -- "$tmp"
+      exit 1
+    fi
+    mv -- "$tmp" "$out"
+
+    if (( CATAGENTS_SIZE_BUDGET > 0 )); then
+      size=$(wc -c < "$out")
+      size=$(( size ))
+      if (( size > CATAGENTS_SIZE_BUDGET )); then
+        printf 'catagents: warning: %s is %d bytes (exceeds %d-byte budget)\n' \
+          "$out" "$size" "$CATAGENTS_SIZE_BUDGET" >&2
+      fi
+    fi
+  done
+}
+
+cmd_build() {
+  require_catagents_dir
+  discover_sources
+  if (( ${#DISCOVERED_SOURCES[@]} == 0 )); then
+    printf 'catagents: no sources found under .catagents/\n' >&2
+    exit 0
+  fi
+  local src
+  for src in "${DISCOVERED_SOURCES[@]}"; do
+    build_one "$src"
+  done
+}
+
+# Re-composes every source in memory and prints what would be written to
+# stdout, with one '--- <path> ---' header per output. Touches no files.
+# Uses the same printf invocation as the writer so the preview is byte-
+# identical to what cmd_build would produce. With --target=both, each
+# source prints twice (once per fanned-out basename) — same body, two
+# headers — so the preview matches the on-disk layout exactly.
+cmd_dry_run() {
+  require_catagents_dir
+  discover_sources
+  if (( ${#DISCOVERED_SOURCES[@]} == 0 )); then
+    printf 'catagents: no sources found under .catagents/\n' >&2
+    exit 0
+  fi
+  local src out
+  local -a out_paths=()
+  for src in "${DISCOVERED_SOURCES[@]}"; do
+    compose_one "$src"
+    out_paths=()
+    while IFS= read -r out; do
+      out_paths+=("$out")
+    done < <(output_paths_for_source "$src")
+    for out in "${out_paths[@]}"; do
+      filter_target_blocks "$(target_of_output_path "$out")"
+      printf -- '--- %s ---\n' "$out"
+      printf '%s\n' "${FILTERED_LINES[@]}"
+    done
+  done
+}
+
+# Re-composes every source in memory and diffs against the on-disk output(s).
+# Streams a unified diff to stderr for every mismatch and accumulates the
+# failure flag across all outputs so CI surfaces all stale files in one run
+# (rather than failing on the first). Missing on-disk files are a mismatch
+# with a one-line message instead of a diff against /dev/null — easier to
+# skim in CI logs. With --target=both, each source checks two outputs;
+# either being stale fails the run. Exits 2 if anything mismatched, else 0.
+# Build-pipeline errors (missing/nested import) still exit 1 via
+# resolve_import; exit 2 is reserved for build-vs-disk drift.
+cmd_check() {
+  require_catagents_dir
+  discover_sources
+  if (( ${#DISCOVERED_SOURCES[@]} == 0 )); then
+    printf 'catagents: no sources found under .catagents/\n' >&2
+    exit 0
+  fi
+  local src built out mismatch=0
+  local -a out_paths=()
+  for src in "${DISCOVERED_SOURCES[@]}"; do
+    compose_one "$src"
+    out_paths=()
+    while IFS= read -r out; do
+      out_paths+=("$out")
+    done < <(output_paths_for_source "$src")
+    for out in "${out_paths[@]}"; do
+      if [[ ! -f $out ]]; then
+        printf 'catagents: --check: missing %s\n' "$out" >&2
+        mismatch=1
+        continue
+      fi
+      filter_target_blocks "$(target_of_output_path "$out")"
+      printf -v built '%s\n' "${FILTERED_LINES[@]}"
+      if ! diff -u <(printf '%s' "$built") "$out" >&2; then
+        mismatch=1
+      fi
+    done
+  done
+  if (( mismatch )); then
+    exit 2
+  fi
+}
+
+# Bootstraps a new repo by creating .catagents/AGENTS.md with a starter.
+# AGENTS.md (not CLAUDE.md) is the agent-agnostic basename — the default
+# --target=both fans this single source out to both CLAUDE.md and AGENTS.md
+# at the repo root. Does NOT route through require_catagents_dir — init is
+# the one command that must work before .catagents/ exists. Refuses if
+# EITHER basename already exists at the root (both would collide under the
+# fan-out model). The example @import is wrapped in a fenced code block so
+# the first build after init does NOT try to resolve it — the scanner only
+# exempts fenced blocks, not HTML comments.
+cmd_init() {
+  if [[ -f .catagents/AGENTS.md ]]; then
+    printf 'catagents: .catagents/AGENTS.md already exists\n' >&2
+    exit 1
+  fi
+  if [[ -f .catagents/CLAUDE.md ]]; then
+    printf 'catagents: .catagents/CLAUDE.md already exists\n' >&2
+    exit 1
+  fi
+  mkdir -p .catagents
+  cat > .catagents/AGENTS.md <<'EOF'
+# Project
+
+<!-- Add @import directives below, one per line. Example: -->
+
+```
+@~/.claude/standards/core.md
+```
+EOF
+}
+
+# Parses argv into (a) at most one command and (b) the --target= option.
+# Order-free: --target may appear before, after, or instead of a command.
+# Unknown flags or extra positional args fall through to usage-and-exit-1.
+# Sets globals CMD and TARGET.
+CMD=''
+parse_args() {
+  local arg
+  for arg in "$@"; do
+    case $arg in
+      --target=claude|--target=agents|--target=both)
+        TARGET=${arg#--target=}
+        ;;
+      --target=*)
+        printf 'catagents: invalid --target value: %s (expected claude, agents, or both)\n' "${arg#--target=}" >&2
+        exit 1
+      ;;
+      build|--check|--dry-run|init|--help|--version)
+        if [[ -n $CMD ]]; then
+          printf 'catagents: cannot combine commands %s and %s\n' "$CMD" "$arg" >&2
+          exit 1
+        fi
+        CMD=$arg
+        ;;
+      *)
+        usage >&2
+        exit 1
+        ;;
+    esac
+  done
+  CMD=${CMD:-build}
+}
+
+main() {
+  parse_args "$@"
+  case $CMD in
+    build)
+      cmd_build
+      ;;
+    --check)
+      cmd_check
+      ;;
+    --dry-run)
+      cmd_dry_run
+      ;;
+    init)
+      cmd_init
+      ;;
+    --help)
+      usage
+      exit 0
+      ;;
+    --version)
+      printf '%s\n' "$CATAGENTS_VERSION"
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

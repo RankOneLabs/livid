@@ -7,7 +7,18 @@
  * Renderers accept `LaidOutDiagram` and nothing else.
  */
 
-export { type Result, ok, err, isOk, isErr } from './result.js';
+export {
+  type Result,
+  type Collected,
+  ok,
+  err,
+  isOk,
+  isErr,
+  collected,
+  rejected,
+  valuesOf,
+  errorsOf,
+} from './result.js';
 
 export {
   type NodeId,

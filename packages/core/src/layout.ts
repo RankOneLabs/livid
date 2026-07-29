@@ -101,10 +101,9 @@ async function layoutLevel<R extends AnyRegistry>(
   options: LayoutOptions,
   deep: boolean,
 ): Promise<LaidOutDiagram<R>> {
-  const sizes = new Map<string, Size>();
-  for (const node of diagram.nodes) {
-    sizes.set(node.id, sizeOf(diagram, node, options.nodeSize ?? {}));
-  }
+  const sizes = new Map<string, Size>(
+    diagram.nodes.map((node) => [node.id as string, sizeOf(diagram, node, options.nodeSize ?? {})]),
+  );
 
   const graph: ElkNode = {
     id: 'root',
@@ -119,30 +118,26 @@ async function layoutLevel<R extends AnyRegistry>(
   };
 
   const result = await elk().layout(graph);
-  const placed = new Map<string, ElkNode>();
-  for (const child of result.children ?? []) {
-    placed.set(child.id, child);
-  }
-  const routed = new Map<string, ElkExtendedEdge>();
-  for (const edge of result.edges ?? []) {
-    routed.set(edge.id, edge);
-  }
+  const placed = new Map<string, ElkNode>((result.children ?? []).map((child) => [child.id, child]));
+  const routed = new Map<string, ElkExtendedEdge>((result.edges ?? []).map((edge) => [edge.id, edge]));
 
-  const nodes: LaidOutNode<R>[] = [];
-  for (const node of diagram.nodes) {
-    const box = placed.get(node.id);
-    const size = sizes.get(node.id) ?? DEFAULT_SIZES.rect;
-    const children = deep && node.children !== null ? await layoutLevel(node.children, options, true) : null;
+  // Nested levels lay out concurrently rather than one after another — they
+  // are independent, and elk is the slow part.
+  const nodes: readonly LaidOutNode<R>[] = await Promise.all(
+    diagram.nodes.map(async (node): Promise<LaidOutNode<R>> => {
+      const box = placed.get(node.id);
+      const size = sizes.get(node.id) ?? DEFAULT_SIZES.rect;
 
-    nodes.push({
-      node,
-      position: { x: box?.x ?? 0, y: box?.y ?? 0 },
-      size: { width: box?.width ?? size.width, height: box?.height ?? size.height },
-      children,
-    });
-  }
+      return {
+        node,
+        position: { x: box?.x ?? 0, y: box?.y ?? 0 },
+        size: { width: box?.width ?? size.width, height: box?.height ?? size.height },
+        children: deep && node.children !== null ? await layoutLevel(node.children, options, true) : null,
+      };
+    }),
+  );
 
-  const edges: LaidOutEdge<R>[] = diagram.edges.map((edge) => ({ edge, route: toRoute(routed.get(edge.id)) }));
+  const edges: readonly LaidOutEdge<R>[] = diagram.edges.map((edge) => ({ edge, route: toRoute(routed.get(edge.id)) }));
 
   return {
     __brand: 'LaidOutDiagram',
@@ -190,21 +185,17 @@ function sizeOf<R extends AnyRegistry>(
 }
 
 function toRoute(edge: ElkExtendedEdge | undefined): readonly Point[] {
-  if (edge === undefined) return [];
+  const sections: readonly ElkEdgeSection[] = edge?.sections ?? [];
 
-  const points: Point[] = [];
-  for (const section of edge.sections ?? ([] as ElkEdgeSection[])) {
-    push(points, section.startPoint);
-    for (const bend of section.bendPoints ?? []) push(points, bend);
-    push(points, section.endPoint);
-  }
-  return points;
+  return sections
+    .flatMap((section) => [section.startPoint, ...(section.bendPoints ?? []), section.endPoint])
+    .map((point): Point => ({ x: point.x, y: point.y }))
+    .filter(dropConsecutiveDuplicates);
 }
 
-/** Consecutive duplicates make zero-length segments, which break marker math. */
-function push(points: Point[], point: Point): void {
-  const last = points[points.length - 1];
-  if (last !== undefined && last.x === point.x && last.y === point.y) return;
-  points.push({ x: point.x, y: point.y });
+/** Zero-length segments serve no purpose and complicate anything that walks a route. */
+function dropConsecutiveDuplicates(point: Point, index: number, route: readonly Point[]): boolean {
+  const previous = route[index - 1];
+  return previous === undefined || previous.x !== point.x || previous.y !== point.y;
 }
 

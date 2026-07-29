@@ -1,9 +1,9 @@
 import type { DetailIssue, DiagramError } from './errors.js';
 import { type DiagramPath, ROOT_PATH, descend, edgeId, lineId, nodeId } from './ids.js';
-import { type Result, err, ok } from './result.js';
+import { type Collected, type Result, collected, err, errorsOf, ok, rejected, valuesOf } from './result.js';
 import { type AnyRegistry, edgeTypeKeys, nodeTypeKeys } from './registry.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
-import type { DiagramSpec, Line, ValidDiagram, ValidEdge, ValidNode } from './types.js';
+import type { DiagramSpec, EdgeSpec, Line, LineSpec, NodeSpec, ValidDiagram, ValidEdge, ValidNode } from './types.js';
 
 /** Vocabulary discipline defaults. A map stops reading as a map past this. */
 export const DEFAULT_TYPE_LIMIT = 6;
@@ -38,20 +38,9 @@ export function validateConfig<S extends StandardSchemaV1>(
     return err({ kind: 'threw', message: describe(cause) });
   }
 
-  if (isPromise(outcome)) {
-    return err({ kind: 'async' });
-  }
-
-  if (outcome.issues !== undefined) {
-    return err({ kind: 'issues', issues: outcome.issues.map(toDetailIssue) });
-  }
-
+  if (isPromise(outcome)) return err({ kind: 'async' });
+  if (outcome.issues !== undefined) return err({ kind: 'issues', issues: outcome.issues.map(toDetailIssue) });
   return ok(outcome.value);
-}
-
-function describe(cause: unknown): string {
-  if (cause instanceof Error) return cause.message;
-  return String(cause);
 }
 
 /**
@@ -64,155 +53,152 @@ export function validateDiagram<R extends AnyRegistry>(
   spec: DiagramSpec,
   options: ValidateOptions = {},
 ): Result<ValidDiagram<R>, readonly DiagramError[]> {
-  const errors: DiagramError[] = [];
+  const level = validateLevel(registry, spec, ROOT_PATH);
+  const errors = [...registryOverflows(registry, options), ...level.errors];
 
-  const nodeLimit = options.nodeTypeLimit ?? DEFAULT_TYPE_LIMIT;
-  const edgeLimit = options.edgeTypeLimit ?? DEFAULT_TYPE_LIMIT;
-  const nodeTypeCount = nodeTypeKeys(registry).length;
-  const edgeTypeCount = edgeTypeKeys(registry).length;
-
-  if (nodeTypeCount > nodeLimit) {
-    errors.push({ kind: 'registry_overflow', axis: 'nodeTypes', count: nodeTypeCount, limit: nodeLimit });
-  }
-  if (edgeTypeCount > edgeLimit) {
-    errors.push({ kind: 'registry_overflow', axis: 'edgeTypes', count: edgeTypeCount, limit: edgeLimit });
-  }
-
-  const diagram = validateLevel(registry, spec, ROOT_PATH, errors);
-
-  return errors.length > 0 ? err(errors) : ok(diagram);
+  return errors.length > 0 ? err(errors) : ok(level.diagram);
 }
 
-function validateLevel<R extends AnyRegistry>(
-  registry: R,
-  spec: DiagramSpec,
-  path: DiagramPath,
-  errors: DiagramError[],
-): ValidDiagram<R> {
-  const lines = collectLines(spec, path, errors);
-  const lineIds = new Set(lines.map((line) => line.id as string));
-  const knownNodeTypes = nodeTypeKeys(registry);
-  const knownEdgeTypes = edgeTypeKeys(registry);
+interface Level<R extends AnyRegistry> {
+  readonly diagram: ValidDiagram<R>;
+  readonly errors: readonly DiagramError[];
+}
 
-  const nodes: ValidNode<R>[] = [];
-  const seenNodeIds = new Set<string>();
+/** What every per-item validator needs, grouped rather than passed loose. */
+interface LevelContext<R extends AnyRegistry> {
+  readonly registry: R;
+  readonly path: DiagramPath;
+  readonly lineIds: ReadonlySet<string>;
+  readonly declaredNodeIds: ReadonlySet<string>;
+}
 
-  for (const nodeSpec of spec.nodes) {
-    if (seenNodeIds.has(nodeSpec.id)) {
-      errors.push({ kind: 'duplicate_node_id', path, nodeId: nodeSpec.id });
-      continue;
-    }
-    seenNodeIds.add(nodeSpec.id);
+function validateLevel<R extends AnyRegistry>(registry: R, spec: DiagramSpec, path: DiagramPath): Level<R> {
+  const lineSpecs = markFirstOccurrences(spec.lines ?? [], (line) => line.id);
+  const lineOutcomes = lineSpecs.map(({ item, isFirst }) => validateLine(item, isFirst, path));
+  const lines = valuesOf(lineOutcomes);
 
-    const typeDef = Object.hasOwn(registry.nodeTypes, nodeSpec.type) ? registry.nodeTypes[nodeSpec.type] : undefined;
-    if (typeDef === undefined) {
-      errors.push({
-        kind: 'unknown_node_type',
-        path,
-        nodeId: nodeSpec.id,
-        type: nodeSpec.type,
-        known: knownNodeTypes,
-      });
-      continue;
-    }
+  const nodeSpecs = markFirstOccurrences(spec.nodes, (node) => node.id);
+  const context: LevelContext<R> = {
+    registry,
+    path,
+    lineIds: new Set(lines.map((line) => line.id as string)),
+    // Every id that cleared the duplicate check, including nodes that later
+    // failed on type or detail — an edge into a node with a bad detail bag is
+    // not also an unresolved endpoint.
+    declaredNodeIds: new Set(nodeSpecs.filter(({ isFirst }) => isFirst).map(({ item }) => item.id)),
+  };
 
-    const line = nodeSpec.line ?? null;
-    if (line !== null && !lineIds.has(line)) {
-      errors.push({
-        kind: 'unknown_line',
-        path,
-        nodeId: nodeSpec.id,
-        line,
-        known: [...lineIds],
-      });
-    }
+  const nodeOutcomes = nodeSpecs.map(({ item, isFirst }) => validateNode(context, item, isFirst));
+  const nodes = valuesOf(nodeOutcomes);
 
-    const detail = validateConfig(typeDef.detail, nodeSpec.detail);
-    if (!detail.ok) {
-      errors.push(toNodeError(detail.error, path, nodeSpec.id, nodeSpec.type));
-      continue;
-    }
-
-    const id = nodeId(nodeSpec.id);
-    const children =
-      nodeSpec.children != null ? validateLevel(registry, nodeSpec.children, descend(path, id), errors) : null;
-
-    // Cast: every field above has been checked against the registry entry for
-    // `nodeSpec.type`, which is exactly the invariant ValidNode encodes. The
-    // union cannot be constructed structurally without re-narrowing on a key
-    // TypeScript has already widened to `string` at the spec boundary.
-    nodes.push({
-      id,
-      type: nodeSpec.type,
-      label: nodeSpec.label,
-      line: line === null ? null : lineId(line),
-      detail: detail.value,
-      children,
-    } as ValidNode<R>);
-  }
-
-  const edges: ValidEdge<R>[] = [];
-  const seenEdgeIds = new Set<string>();
-
-  for (const edgeSpec of spec.edges) {
-    if (seenEdgeIds.has(edgeSpec.id)) {
-      errors.push({ kind: 'duplicate_edge_id', path, edgeId: edgeSpec.id });
-      continue;
-    }
-    seenEdgeIds.add(edgeSpec.id);
-
-    const typeDef = Object.hasOwn(registry.edgeTypes, edgeSpec.type) ? registry.edgeTypes[edgeSpec.type] : undefined;
-    if (typeDef === undefined) {
-      errors.push({
-        kind: 'unknown_edge_type',
-        path,
-        edgeId: edgeSpec.id,
-        type: edgeSpec.type,
-        known: knownEdgeTypes,
-      });
-      continue;
-    }
-
-    // Edges connect nodes within one level. A drill-down diagram is
-    // self-contained, so there is no cross-level edge to resolve.
-    let unresolved = false;
-    if (!seenNodeIds.has(edgeSpec.source)) {
-      errors.push({ kind: 'unresolved_endpoint', path, edgeId: edgeSpec.id, endpoint: 'source', ref: edgeSpec.source });
-      unresolved = true;
-    }
-    if (!seenNodeIds.has(edgeSpec.target)) {
-      errors.push({ kind: 'unresolved_endpoint', path, edgeId: edgeSpec.id, endpoint: 'target', ref: edgeSpec.target });
-      unresolved = true;
-    }
-
-    const detail = validateConfig(typeDef.detail, edgeSpec.detail);
-    if (!detail.ok) {
-      errors.push(toEdgeError(detail.error, path, edgeSpec.id, edgeSpec.type));
-      continue;
-    }
-
-    if (unresolved) continue;
-
-    // Cast: same reasoning as ValidNode above.
-    edges.push({
-      id: edgeId(edgeSpec.id),
-      type: edgeSpec.type,
-      source: nodeId(edgeSpec.source),
-      target: nodeId(edgeSpec.target),
-      label: edgeSpec.label ?? null,
-      detail: detail.value,
-    } as ValidEdge<R>);
-  }
-
-  checkBranching(registry, nodes, edges, path, errors);
+  const edgeOutcomes = markFirstOccurrences(spec.edges, (edge) => edge.id).map(({ item, isFirst }) =>
+    validateEdge(context, item, isFirst),
+  );
+  const edges = valuesOf(edgeOutcomes);
 
   return {
-    __brand: 'ValidDiagram',
-    registry,
-    lines,
-    nodes,
-    edges,
+    diagram: { __brand: 'ValidDiagram', registry, lines, nodes, edges },
+    errors: [
+      ...errorsOf(lineOutcomes),
+      ...errorsOf(nodeOutcomes),
+      ...errorsOf(edgeOutcomes),
+      ...illegalBranches(context, nodes, edges),
+    ],
   };
+}
+
+function validateLine(spec: LineSpec, isFirst: boolean, path: DiagramPath): Collected<Line, DiagramError> {
+  if (!isFirst) return rejected({ kind: 'duplicate_line_id', path, lineId: spec.id });
+  return collected({ id: lineId(spec.id), label: spec.label, color: spec.color });
+}
+
+function validateNode<R extends AnyRegistry>(
+  context: LevelContext<R>,
+  spec: NodeSpec,
+  isFirst: boolean,
+): Collected<ValidNode<R>, DiagramError> {
+  const { registry, path } = context;
+
+  if (!isFirst) return rejected({ kind: 'duplicate_node_id', path, nodeId: spec.id });
+
+  const typeDef = registry.nodeTypes[spec.type];
+  if (typeDef === undefined) {
+    return rejected({ kind: 'unknown_node_type', path, nodeId: spec.id, type: spec.type, known: nodeTypeKeys(registry) });
+  }
+
+  const line = spec.line ?? null;
+  // An unknown line is reported but does not stop the node being built: one
+  // bad reference should not cascade into unresolved endpoints downstream.
+  const lineErrors: readonly DiagramError[] =
+    line !== null && !context.lineIds.has(line)
+      ? [{ kind: 'unknown_line', path, nodeId: spec.id, line, known: [...context.lineIds] }]
+      : [];
+
+  const detail = validateConfig(typeDef.detail, spec.detail);
+  if (!detail.ok) return { value: null, errors: [...lineErrors, toNodeError(detail.error, path, spec.id, spec.type)] };
+
+  const id = nodeId(spec.id);
+  const nested = spec.children == null ? null : validateLevel(registry, spec.children, descend(path, id));
+
+  // Cast: every field has been checked against the registry entry for
+  // `spec.type`, which is exactly the invariant ValidNode encodes. The union
+  // cannot be built structurally from a key TypeScript widened to `string` at
+  // the spec boundary.
+  const node = {
+    id,
+    type: spec.type,
+    label: spec.label,
+    line: line === null ? null : lineId(line),
+    detail: detail.value,
+    children: nested?.diagram ?? null,
+  } as ValidNode<R>;
+
+  return collected(node, [...lineErrors, ...(nested?.errors ?? [])]);
+}
+
+function validateEdge<R extends AnyRegistry>(
+  context: LevelContext<R>,
+  spec: EdgeSpec,
+  isFirst: boolean,
+): Collected<ValidEdge<R>, DiagramError> {
+  const { registry, path, declaredNodeIds } = context;
+
+  if (!isFirst) return rejected({ kind: 'duplicate_edge_id', path, edgeId: spec.id });
+
+  const typeDef = registry.edgeTypes[spec.type];
+  if (typeDef === undefined) {
+    return rejected({ kind: 'unknown_edge_type', path, edgeId: spec.id, type: spec.type, known: edgeTypeKeys(registry) });
+  }
+
+  // Edges connect nodes within one level. A drill-down diagram is
+  // self-contained, so there is no cross-level endpoint to resolve.
+  const endpointErrors = (['source', 'target'] as const)
+    .filter((endpoint) => !declaredNodeIds.has(spec[endpoint]))
+    .map(
+      (endpoint): DiagramError => ({
+        kind: 'unresolved_endpoint',
+        path,
+        edgeId: spec.id,
+        endpoint,
+        ref: spec[endpoint],
+      }),
+    );
+
+  const detail = validateConfig(typeDef.detail, spec.detail);
+  if (!detail.ok) return { value: null, errors: [...endpointErrors, toEdgeError(detail.error, path, spec.id, spec.type)] };
+  if (endpointErrors.length > 0) return { value: null, errors: endpointErrors };
+
+  // Cast: same reasoning as ValidNode above.
+  const edge = {
+    id: edgeId(spec.id),
+    type: spec.type,
+    source: nodeId(spec.source),
+    target: nodeId(spec.target),
+    label: spec.label ?? null,
+    detail: detail.value,
+  } as ValidEdge<R>;
+
+  return collected(edge);
 }
 
 /**
@@ -220,25 +206,57 @@ function validateLevel<R extends AnyRegistry>(
  * structural and needs no resolved lines, unlike the line-change invariant,
  * which has to wait for normalization.
  */
-function checkBranching<R extends AnyRegistry>(
-  registry: R,
+function illegalBranches<R extends AnyRegistry>(
+  context: LevelContext<R>,
   nodes: readonly ValidNode<R>[],
   edges: readonly ValidEdge<R>[],
-  path: DiagramPath,
-  errors: DiagramError[],
-): void {
-  const outgoing = new Map<string, number>();
-  for (const edge of edges) {
-    outgoing.set(edge.source, (outgoing.get(edge.source) ?? 0) + 1);
-  }
+): readonly DiagramError[] {
+  const outgoing = edges.reduce(
+    (counts, edge) => counts.set(edge.source, (counts.get(edge.source) ?? 0) + 1),
+    new Map<string, number>(),
+  );
 
-  for (const node of nodes) {
-    const count = outgoing.get(node.id) ?? 0;
-    if (count <= 1) continue;
-    if (registry.nodeTypes[node.type]?.isRouter === true) continue;
+  return nodes
+    .filter((node) => (outgoing.get(node.id) ?? 0) > 1)
+    .filter((node) => context.registry.nodeTypes[node.type]?.isRouter !== true)
+    .map((node) => ({
+      kind: 'illegal_branch',
+      path: context.path,
+      nodeId: node.id,
+      type: node.type,
+      outgoing: outgoing.get(node.id) ?? 0,
+    }));
+}
 
-    errors.push({ kind: 'illegal_branch', path, nodeId: node.id, type: node.type, outgoing: count });
-  }
+function registryOverflows<R extends AnyRegistry>(registry: R, options: ValidateOptions): readonly DiagramError[] {
+  const axes = [
+    { axis: 'nodeTypes', count: nodeTypeKeys(registry).length, limit: options.nodeTypeLimit ?? DEFAULT_TYPE_LIMIT },
+    { axis: 'edgeTypes', count: edgeTypeKeys(registry).length, limit: options.edgeTypeLimit ?? DEFAULT_TYPE_LIMIT },
+  ] as const;
+
+  return axes
+    .filter(({ count, limit }) => count > limit)
+    .map(({ axis, count, limit }) => ({ kind: 'registry_overflow', axis, count, limit }));
+}
+
+interface Occurrence<T> {
+  readonly item: T;
+  readonly isFirst: boolean;
+}
+
+/**
+ * Tags each item with whether its id had been seen before, so duplicate
+ * detection becomes a pure map rather than a loop threading a mutable set —
+ * and encounter order, which callers assert on, is preserved exactly.
+ */
+function markFirstOccurrences<T>(items: readonly T[], keyOf: (item: T) => string): readonly Occurrence<T>[] {
+  const seen = new Set<string>();
+  return items.map((item) => {
+    const key = keyOf(item);
+    const isFirst = !seen.has(key);
+    seen.add(key);
+    return { item, isFirst };
+  });
 }
 
 function toNodeError(error: ConfigError, path: DiagramPath, nodeId: string, type: string): DiagramError {
@@ -263,27 +281,15 @@ function toEdgeError(error: ConfigError, path: DiagramPath, edgeId: string, type
   }
 }
 
-function collectLines(spec: DiagramSpec, path: DiagramPath, errors: DiagramError[]): readonly Line[] {
-  const lines: Line[] = [];
-  const seen = new Set<string>();
-
-  for (const line of spec.lines ?? []) {
-    if (seen.has(line.id)) {
-      errors.push({ kind: 'duplicate_line_id', path, lineId: line.id });
-      continue;
-    }
-    seen.add(line.id);
-    lines.push({ id: lineId(line.id), label: line.label, color: line.color });
-  }
-
-  return lines;
-}
-
 function toDetailIssue(issue: StandardSchemaV1.Issue): DetailIssue {
   const segments = (issue.path ?? []).map((segment) =>
     typeof segment === 'object' && segment !== null && 'key' in segment ? String(segment.key) : String(segment),
   );
   return { message: issue.message, field: segments.length > 0 ? segments.join('.') : '<root>' };
+}
+
+function describe(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function isPromise<T>(value: T | Promise<T>): value is Promise<T> {
