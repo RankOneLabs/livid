@@ -1,0 +1,20 @@
+{
+  "name": "livid",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Living diagrams: schema-derived system maps with recursive drill-down.",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "check": "tsc -b packages/core",
+    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

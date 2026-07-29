@@ -1,0 +1,249 @@
+import ELK from 'elkjs/lib/elk.bundled.js';
+import type { ElkEdgeSection, ElkExtendedEdge, ElkNode, LayoutOptions as ElkOptions } from 'elkjs/lib/elk-api.js';
+
+import { normalize } from './normalize.js';
+import type { AnyRegistry, NodeShape } from './registry.js';
+import type { LaidOutDiagram, LaidOutEdge, LaidOutNode, Point, Size, ValidDiagram, ValidNode } from './types.js';
+
+export type LayoutDirection = 'right' | 'down';
+
+export interface LayoutSpacing {
+  /** Gap between nodes sharing a layer. */
+  readonly nodeNode?: number;
+  /** Gap between layers — the distance a route travels between stations. */
+  readonly layers?: number;
+  /** Clearance an orthogonal route keeps from a node it passes. */
+  readonly edgeNode?: number;
+}
+
+export interface NodeSizeConfig {
+  readonly base?: Partial<Record<NodeShape, Size>>;
+  /** Width added per label character, before clamping to `maxWidth`. */
+  readonly charWidth?: number;
+  readonly padding?: number;
+  readonly maxWidth?: number;
+}
+
+export interface LayoutOptions {
+  readonly direction?: LayoutDirection;
+  readonly spacing?: LayoutSpacing;
+  readonly nodeSize?: NodeSizeConfig;
+}
+
+/**
+ * Shapes read as themselves only at roughly these proportions, so the defaults
+ * are per-shape rather than one box size for everything.
+ */
+const DEFAULT_SIZES: Record<NodeShape, Size> = {
+  rect: { width: 160, height: 56 },
+  rounded: { width: 160, height: 56 },
+  stadium: { width: 152, height: 48 },
+  circle: { width: 72, height: 72 },
+  hexagon: { width: 152, height: 64 },
+  diamond: { width: 120, height: 88 },
+  cylinder: { width: 144, height: 72 },
+};
+
+/** Growing these would distort the shape past recognition, so they stay fixed. */
+const FIXED_WIDTH_SHAPES: ReadonlySet<NodeShape> = new Set<NodeShape>(['circle', 'diamond']);
+
+const DEFAULT_SPACING: Required<LayoutSpacing> = { nodeNode: 48, layers: 96, edgeNode: 24 };
+const DEFAULT_CHAR_WIDTH = 8;
+const DEFAULT_PADDING = 20;
+const DEFAULT_MAX_WIDTH = 280;
+
+/**
+ * One instance, reused. `elk.bundled` runs in-process with no worker, so there
+ * is nothing to tear down and construction is the only meaningful cost.
+ */
+let engine: InstanceType<typeof ELK> | null = null;
+
+function elk(): InstanceType<typeof ELK> {
+  engine ??= new ELK();
+  return engine;
+}
+
+/**
+ * Lay out one diagram level. Async because elkjs has no synchronous API —
+ * which costs nothing in practice, since geometry is computed at build time
+ * and `LaidOutDiagram` is serializable.
+ *
+ * Normalization runs first and cannot be skipped.
+ */
+export async function layout<R extends AnyRegistry>(
+  diagram: ValidDiagram<R>,
+  options: LayoutOptions = {},
+): Promise<LaidOutDiagram<R>> {
+  const normalized = normalize(diagram);
+  return layoutLevel(normalized, options, false);
+}
+
+/**
+ * Lay out a diagram and every drill-down level beneath it. The SVG renderer
+ * needs this — a static file has to contain every level it can reveal. The
+ * React renderer can use `layout()` and descend on demand, which is what keeps
+ * large graphs viable.
+ */
+export async function layoutDeep<R extends AnyRegistry>(
+  diagram: ValidDiagram<R>,
+  options: LayoutOptions = {},
+): Promise<LaidOutDiagram<R>> {
+  const normalized = normalize(diagram);
+  return layoutLevel(normalized, options, true);
+}
+
+async function layoutLevel<R extends AnyRegistry>(
+  diagram: ValidDiagram<R>,
+  options: LayoutOptions,
+  deep: boolean,
+): Promise<LaidOutDiagram<R>> {
+  const sizes = new Map<string, Size>();
+  for (const node of diagram.nodes) {
+    sizes.set(node.id, sizeOf(diagram, node, options.nodeSize ?? {}));
+  }
+
+  const graph: ElkNode = {
+    id: 'root',
+    layoutOptions: elkOptions(options),
+    children: diagram.nodes.map((node) => {
+      const size = sizes.get(node.id) ?? DEFAULT_SIZES.rect;
+      return { id: node.id, width: size.width, height: size.height };
+    }),
+    edges: diagram.edges.map(
+      (edge): ElkExtendedEdge => ({ id: edge.id, sources: [edge.source], targets: [edge.target] }),
+    ),
+  };
+
+  const result = await elk().layout(graph);
+  const placed = new Map<string, ElkNode>();
+  for (const child of result.children ?? []) {
+    placed.set(child.id, child);
+  }
+  const routed = new Map<string, ElkExtendedEdge>();
+  for (const edge of result.edges ?? []) {
+    routed.set(edge.id, edge);
+  }
+
+  const nodes: LaidOutNode<R>[] = [];
+  for (const node of diagram.nodes) {
+    const box = placed.get(node.id);
+    const size = sizes.get(node.id) ?? DEFAULT_SIZES.rect;
+    const children = deep && node.children !== null ? await layoutLevel(node.children, options, true) : null;
+
+    nodes.push({
+      node,
+      position: { x: box?.x ?? 0, y: box?.y ?? 0 },
+      size: { width: box?.width ?? size.width, height: box?.height ?? size.height },
+      children,
+    });
+  }
+
+  const edges: LaidOutEdge<R>[] = diagram.edges.map((edge) => {
+    const route = toRoute(routed.get(edge.id));
+    const typeDef = diagram.registry.edgeTypes[edge.type];
+    const wantsMarker = typeDef !== undefined && typeDef.marker !== 'none';
+
+    return { edge, route, markerAt: wantsMarker ? midpointOf(route) : null };
+  });
+
+  return {
+    __brand: 'LaidOutDiagram',
+    registry: diagram.registry,
+    lines: diagram.lines,
+    nodes,
+    edges,
+    bounds: { width: result.width ?? 0, height: result.height ?? 0 },
+  };
+}
+
+function elkOptions(options: LayoutOptions): ElkOptions {
+  const spacing = { ...DEFAULT_SPACING, ...options.spacing };
+
+  return {
+    'elk.algorithm': 'layered',
+    'elk.direction': options.direction === 'down' ? 'DOWN' : 'RIGHT',
+    // The reason for choosing ELK over dagre: real orthogonal routing is what
+    // makes the map read as a transit diagram rather than a flowchart.
+    'elk.edgeRouting': 'ORTHOGONAL',
+    'elk.layered.spacing.nodeNodeBetweenLayers': String(spacing.layers),
+    'elk.spacing.nodeNode': String(spacing.nodeNode),
+    'elk.spacing.edgeNode': String(spacing.edgeNode),
+    'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+  };
+}
+
+function sizeOf<R extends AnyRegistry>(
+  diagram: ValidDiagram<R>,
+  node: ValidNode<R>,
+  config: NodeSizeConfig,
+): Size {
+  const typeDef = diagram.registry.nodeTypes[node.type];
+  const shape: NodeShape = typeDef?.shape ?? 'rect';
+  const base = config.base?.[shape] ?? DEFAULT_SIZES[shape];
+
+  if (FIXED_WIDTH_SHAPES.has(shape)) return base;
+
+  const charWidth = config.charWidth ?? DEFAULT_CHAR_WIDTH;
+  const padding = config.padding ?? DEFAULT_PADDING;
+  const maxWidth = config.maxWidth ?? DEFAULT_MAX_WIDTH;
+  const wanted = padding * 2 + node.label.length * charWidth;
+
+  return { width: Math.min(maxWidth, Math.max(base.width, wanted)), height: base.height };
+}
+
+function toRoute(edge: ElkExtendedEdge | undefined): readonly Point[] {
+  if (edge === undefined) return [];
+
+  const points: Point[] = [];
+  for (const section of edge.sections ?? ([] as ElkEdgeSection[])) {
+    push(points, section.startPoint);
+    for (const bend of section.bendPoints ?? []) push(points, bend);
+    push(points, section.endPoint);
+  }
+  return points;
+}
+
+/** Consecutive duplicates make zero-length segments, which break marker math. */
+function push(points: Point[], point: Point): void {
+  const last = points[points.length - 1];
+  if (last !== undefined && last.x === point.x && last.y === point.y) return;
+  points.push({ x: point.x, y: point.y });
+}
+
+/**
+ * The checkpoint sits at the halfway point *by travelled distance*, not by
+ * segment count — otherwise a gate drifts toward whichever end has more bends.
+ */
+function midpointOf(route: readonly Point[]): Point | null {
+  if (route.length === 0) return null;
+  const first = route[0];
+  if (first === undefined) return null;
+  if (route.length === 1) return first;
+
+  let total = 0;
+  for (let i = 1; i < route.length; i += 1) {
+    total += distance(route[i - 1], route[i]);
+  }
+
+  let travelled = 0;
+  const half = total / 2;
+  for (let i = 1; i < route.length; i += 1) {
+    const from = route[i - 1];
+    const to = route[i];
+    if (from === undefined || to === undefined) continue;
+
+    const segment = distance(from, to);
+    if (travelled + segment >= half) {
+      const ratio = segment === 0 ? 0 : (half - travelled) / segment;
+      return { x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio };
+    }
+    travelled += segment;
+  }
+
+  return route[route.length - 1] ?? first;
+}
+
+function distance(from: Point | undefined, to: Point | undefined): number {
+  if (from === undefined || to === undefined) return 0;
+  return Math.hypot(to.x - from.x, to.y - from.y);
+}
