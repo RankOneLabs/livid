@@ -10,23 +10,32 @@ export type NodeShape = 'rect' | 'rounded' | 'stadium' | 'circle' | 'hexagon' | 
 /** Station mark drawn on the node. Closed for the same reason as NodeShape. */
 export type Glyph = 'none' | 'dot' | 'ring' | 'bar' | 'chevron' | 'square';
 
-/** Mid-edge mark. A gate is a property of a flow, not a node of its own. */
-export type EdgeMarker = 'none' | 'checkpoint' | 'branch';
-
 export interface NodeTypeDef<S extends StandardSchemaV1 = StandardSchemaV1> {
   readonly label: string;
   /** Schema for this type's detail bag. Core writes the handler from it. */
   readonly detail: S;
   readonly shape: NodeShape;
   readonly glyph?: Glyph;
+  /**
+   * Whether this type routes flow: branching out, condensing in, terminating,
+   * and changing line. Everything meta about control flow happens at a router;
+   * ordinary nodes pass flow straight through on the line they are on.
+   *
+   * What *decides* the routing — a gate, a threshold, reading tea leaves — is
+   * domain semantics and lives in the type's detail schema, not here. Core
+   * never learns the word "gate".
+   */
+  readonly isRouter: boolean;
 }
 
+/**
+ * Edges carry what flows, not what happens to it. A type distinguishes a query
+ * from a log write from a payment authorization, and its detail schema shapes
+ * the payload you drill into. Control flow is the router's business.
+ */
 export interface EdgeTypeDef<S extends StandardSchemaV1 = StandardSchemaV1> {
   readonly label: string;
   readonly detail: S;
-  readonly marker: EdgeMarker;
-  /** Whether this edge type may fan out to more than one target from a node. */
-  readonly branching: boolean;
 }
 
 export interface Registry<

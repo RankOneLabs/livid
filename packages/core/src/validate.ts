@@ -203,6 +203,8 @@ function validateLevel<R extends AnyRegistry>(
     } as ValidEdge<R>);
   }
 
+  checkBranching(registry, nodes, edges, path, errors);
+
   return {
     __brand: 'ValidDiagram',
     registry,
@@ -210,6 +212,32 @@ function validateLevel<R extends AnyRegistry>(
     nodes,
     edges,
   };
+}
+
+/**
+ * Fanning out is a routing act, so only a routing node type may do it. This is
+ * structural and needs no resolved lines, unlike the line-change invariant,
+ * which has to wait for normalization.
+ */
+function checkBranching<R extends AnyRegistry>(
+  registry: R,
+  nodes: readonly ValidNode<R>[],
+  edges: readonly ValidEdge<R>[],
+  path: DiagramPath,
+  errors: DiagramError[],
+): void {
+  const outgoing = new Map<string, number>();
+  for (const edge of edges) {
+    outgoing.set(edge.source, (outgoing.get(edge.source) ?? 0) + 1);
+  }
+
+  for (const node of nodes) {
+    const count = outgoing.get(node.id) ?? 0;
+    if (count <= 1) continue;
+    if (registry.nodeTypes[node.type]?.isRouter === true) continue;
+
+    errors.push({ kind: 'illegal_branch', path, nodeId: node.id, type: node.type, outgoing: count });
+  }
 }
 
 function collectLines(spec: DiagramSpec, path: DiagramPath, errors: DiagramError[]): readonly Line[] {

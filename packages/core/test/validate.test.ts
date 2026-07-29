@@ -5,12 +5,13 @@ import { anything, asyncSchema, objectWithString } from './helpers.js';
 
 const registry = defineRegistry({
   nodeTypes: {
-    client: { label: 'Client', detail: anything, shape: 'stadium' },
-    transform: { label: 'Transform', detail: objectWithString('flavor'), shape: 'rounded' },
+    client: { label: 'Client', detail: anything, shape: 'stadium', isRouter: false },
+    transform: { label: 'Transform', detail: objectWithString('flavor'), shape: 'rounded', isRouter: false },
+    gate: { label: 'Gate', detail: anything, shape: 'diamond', isRouter: true },
   },
   edgeTypes: {
-    plain: { label: 'Flow', detail: anything, marker: 'none', branching: false },
-    gated: { label: 'Gate', detail: anything, marker: 'checkpoint', branching: true },
+    flow: { label: 'Flow', detail: anything },
+    log: { label: 'Log write', detail: anything },
   },
 });
 
@@ -20,7 +21,7 @@ const wellFormed: DiagramSpec = {
     { id: 'in', type: 'client', label: 'Operator', line: 'main' },
     { id: 'draft', type: 'transform', label: 'Draft', detail: { flavor: 'llm' } },
   ],
-  edges: [{ id: 'e1', type: 'plain', source: 'in', target: 'draft' }],
+  edges: [{ id: 'e1', type: 'flow', source: 'in', target: 'draft' }],
 };
 
 function errorKinds(spec: DiagramSpec): readonly string[] {
@@ -30,8 +31,7 @@ function errorKinds(spec: DiagramSpec): readonly string[] {
 
 describe('validateDiagram', () => {
   it('accepts a well-formed spec', () => {
-    const result = validateDiagram(registry, wellFormed);
-    expect(result.ok).toBe(true);
+    expect(validateDiagram(registry, wellFormed).ok).toBe(true);
   });
 
   it('rejects a node whose type is not registered', () => {
@@ -44,7 +44,7 @@ describe('validateDiagram', () => {
     const result = validateDiagram(registry, { nodes: [{ id: 'a', type: 'wormhole', label: 'Nope' }], edges: [] });
     if (result.ok) throw new Error('expected rejection');
     const [error] = result.error;
-    expect(error?.kind === 'unknown_node_type' && error.known).toEqual(['client', 'transform']);
+    expect(error?.kind === 'unknown_node_type' && error.known).toEqual(['client', 'transform', 'gate']);
   });
 
   it('rejects a duplicate node id', () => {
@@ -63,7 +63,7 @@ describe('validateDiagram', () => {
     expect(
       errorKinds({
         nodes: [{ id: 'a', type: 'client', label: 'One' }],
-        edges: [{ id: 'e1', type: 'plain', source: 'a', target: 'ghost' }],
+        edges: [{ id: 'e1', type: 'flow', source: 'a', target: 'ghost' }],
       }),
     ).toEqual(['unresolved_endpoint']);
   });
@@ -100,13 +100,7 @@ describe('validateDiagram', () => {
         ],
         edges: [{ id: 'e1', type: 'telepathy', source: 'a', target: 'zzz' }],
       }),
-    ).toEqual([
-      'unknown_node_type',
-      'invalid_detail',
-      'duplicate_node_id',
-      'unknown_line',
-      'unknown_edge_type',
-    ]);
+    ).toEqual(['unknown_node_type', 'invalid_detail', 'duplicate_node_id', 'unknown_line', 'unknown_edge_type']);
   });
 
   it('attaches the drill-down path to an error inside a nested level', () => {
@@ -143,7 +137,7 @@ describe('validateDiagram', () => {
             label: 'Host',
             children: {
               nodes: [{ id: 'inner', type: 'client', label: 'Inner' }],
-              edges: [{ id: 'x', type: 'plain', source: 'inner', target: 'outer' }],
+              edges: [{ id: 'x', type: 'flow', source: 'inner', target: 'outer' }],
             },
           },
         ],
@@ -154,12 +148,57 @@ describe('validateDiagram', () => {
 
   it('rejects a schema that returns a promise', () => {
     const asyncRegistry = defineRegistry({
-      nodeTypes: { client: { label: 'Client', detail: asyncSchema, shape: 'stadium' } },
-      edgeTypes: { plain: { label: 'Flow', detail: anything, marker: 'none', branching: false } },
+      nodeTypes: { client: { label: 'Client', detail: asyncSchema, shape: 'stadium', isRouter: false } },
+      edgeTypes: { flow: { label: 'Flow', detail: anything } },
     });
     const result = validateDiagram(asyncRegistry, { nodes: [{ id: 'a', type: 'client', label: 'x' }], edges: [] });
     if (result.ok) throw new Error('expected rejection');
     expect(result.error[0]?.kind).toBe('async_schema');
+  });
+});
+
+describe('branching is router-only', () => {
+  const fanOut = (sourceType: string): DiagramSpec => ({
+    nodes: [
+      { id: 'src', type: sourceType, label: 'Source' },
+      { id: 'a', type: 'client', label: 'A' },
+      { id: 'b', type: 'client', label: 'B' },
+    ],
+    edges: [
+      { id: 'e1', type: 'flow', source: 'src', target: 'a' },
+      { id: 'e2', type: 'log', source: 'src', target: 'b' },
+    ],
+  });
+
+  it('rejects a fan-out from a node whose type does not route', () => {
+    expect(errorKinds(fanOut('client'))).toEqual(['illegal_branch']);
+  });
+
+  it('reports how many targets the offending node fanned out to', () => {
+    const result = validateDiagram(registry, fanOut('client'));
+    if (result.ok) throw new Error('expected rejection');
+    const [error] = result.error;
+    expect(error?.kind === 'illegal_branch' && error.outgoing).toBe(2);
+  });
+
+  it('accepts the same fan-out from a router', () => {
+    expect(validateDiagram(registry, fanOut('gate')).ok).toBe(true);
+  });
+
+  it('accepts a single outgoing edge from a non-router', () => {
+    expect(validateDiagram(registry, wellFormed).ok).toBe(true);
+  });
+
+  it('accepts a non-router with no outgoing edges, since sinks are ordinary', () => {
+    expect(
+      validateDiagram(registry, {
+        nodes: [
+          { id: 'a', type: 'client', label: 'A' },
+          { id: 'b', type: 'client', label: 'B' },
+        ],
+        edges: [{ id: 'e1', type: 'flow', source: 'a', target: 'b' }],
+      }).ok,
+    ).toBe(true);
   });
 });
 
@@ -168,10 +207,10 @@ describe('registry discipline', () => {
     nodeTypes: Object.fromEntries(
       ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((key) => [
         key,
-        { label: key, detail: anything, shape: 'rect' as const },
+        { label: key, detail: anything, shape: 'rect' as const, isRouter: false },
       ]),
     ),
-    edgeTypes: { plain: { label: 'Flow', detail: anything, marker: 'none', branching: false } },
+    edgeTypes: { flow: { label: 'Flow', detail: anything } },
   });
 
   it('rejects a vocabulary above the default limit', () => {

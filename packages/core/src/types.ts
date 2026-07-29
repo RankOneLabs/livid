@@ -118,8 +118,6 @@ export interface LaidOutEdge<R extends AnyRegistry> {
   readonly edge: ValidEdge<R>;
   /** Orthogonal / 45-degree route, source-first. Includes both endpoints. */
   readonly route: readonly Point[];
-  /** Where a checkpoint or branch marker sits along the route, if any. */
-  readonly markerAt: Point | null;
 }
 
 export interface LaidOutDiagram<R extends AnyRegistry> {

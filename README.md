@@ -47,14 +47,40 @@ large graphs viable.
 ## Where user control stops
 
 - **What data** → config, validated, brand-gated.
-- **How a type draws** → registry config (`shape`, `glyph`, `marker`). Not
-  component injection: both renderers are closed, which is what guarantees they
-  agree.
-- **Nothing structural** → graph invariants, normalization, layout, and routing
-  are core's.
+- **How a type draws** → registry config (`shape`, `glyph`). Not component
+  injection: both renderers are closed, which is what guarantees they agree.
+- **Nothing structural** → graph invariants, normalization, layout, and edge
+  routing are core's.
 
 Detail views are derived from the type's schema rather than hand-written per
 type, which is what keeps shipping sensible defaults cheap.
+
+## Routers carry control flow; edges carry payload
+
+Edges say *what flows* — a query, a log write, a payment authorization — and
+their detail schema shapes the payload you drill into. They have no say in
+what happens to flow.
+
+Everything meta belongs to node types that declare `isRouter`: branching out,
+condensing in, terminating, and changing line. A router has contents worth
+drilling into (a policy, a verdict, an evidence trail), fan-out is naturally
+n-ary where an edge is binary, and on a transit map you change line *at* an
+interchange rather than mid-track.
+
+What *decides* the routing — a gate, a threshold, reading tea leaves — is
+domain semantics living in the router type's detail schema. Core never learns
+the word "gate".
+
+Two invariants follow, and core enforces both:
+
+- **Fanning out is router-only.** More than one outgoing edge from a
+  non-routing node is rejected. Sinks with no outgoing edges stay ordinary.
+- **A line may only change at a router.** Routers may switch flow onto another
+  line but are not obliged to; most gates pass straight through.
+
+The second needs resolved lines, so it runs after inheritance — which is why
+`normalize` returns a `Result` rather than only filling defaults, and why
+`layout` propagates it.
 
 ## Vocabulary is configurable
 
@@ -66,14 +92,15 @@ both render.
 ```ts
 const registry = defineRegistry({
   nodeTypes: {
-    datastore: { label: 'Data store', detail: DatastoreDetail, shape: 'cylinder', glyph: 'bar' },
-    transform: { label: 'Transform',  detail: TransformDetail, shape: 'rounded',  glyph: 'dot' },
-    server:    { label: 'Server',     detail: ServerDetail,    shape: 'rect',     glyph: 'square' },
-    client:    { label: 'Client',     detail: ClientDetail,    shape: 'stadium',  glyph: 'ring' },
+    datastore: { label: 'Data store', detail: DatastoreDetail, shape: 'cylinder', glyph: 'bar',    isRouter: false },
+    transform: { label: 'Transform',  detail: TransformDetail, shape: 'rounded',  glyph: 'dot',    isRouter: false },
+    server:    { label: 'Server',     detail: ServerDetail,    shape: 'rect',     glyph: 'square', isRouter: false },
+    client:    { label: 'Client',     detail: ClientDetail,    shape: 'stadium',  glyph: 'ring',   isRouter: false },
+    gate:      { label: 'Gate',       detail: GateDetail,      shape: 'diamond',  glyph: 'chevron', isRouter: true },
   },
   edgeTypes: {
-    plain:     { label: 'Flow',   detail: NoDetail,   marker: 'none',       branching: false },
-    gated:     { label: 'Gate',   detail: GateDetail, marker: 'checkpoint', branching: true },
+    flow:      { label: 'Flow',       detail: NoDetail },
+    log:       { label: 'Log write',  detail: LogDetail },
   },
 })
 ```

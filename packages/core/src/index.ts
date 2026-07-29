@@ -27,7 +27,6 @@ export { type DetailIssue, type DiagramError, formatError } from './errors.js';
 export {
   type NodeShape,
   type Glyph,
-  type EdgeMarker,
   type NodeTypeDef,
   type EdgeTypeDef,
   type Registry,

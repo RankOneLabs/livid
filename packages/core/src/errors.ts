@@ -87,6 +87,30 @@ export type DiagramError =
     }
   | {
       /**
+       * Flow fanned out from a node whose type does not route. Branching,
+       * condensing, and terminating are router-only.
+       */
+      readonly kind: 'illegal_branch';
+      readonly path: DiagramPath;
+      readonly nodeId: string;
+      readonly type: string;
+      readonly outgoing: number;
+    }
+  | {
+      /**
+       * A line changed somewhere other than a router. On a transit map you
+       * change line at an interchange, never mid-track.
+       */
+      readonly kind: 'illegal_line_change';
+      readonly path: DiagramPath;
+      readonly edgeId: string;
+      readonly sourceId: string;
+      readonly sourceType: string;
+      readonly fromLine: string | null;
+      readonly toLine: string | null;
+    }
+  | {
+      /**
        * The vocabulary discipline: a map stops reading as a map once it has
        * too many primitives. Configurable, not absolute.
        */
@@ -120,6 +144,10 @@ export function formatError(error: DiagramError): string {
       return `edge "${error.edgeId}" (${error.type}) has an invalid detail bag: ${error.issues
         .map((issue) => `${issue.field}: ${issue.message}`)
         .join('; ')}`;
+    case 'illegal_branch':
+      return `node "${error.nodeId}" (${error.type}) fans out to ${error.outgoing} targets but its type does not route`;
+    case 'illegal_line_change':
+      return `edge "${error.edgeId}" changes line from "${error.fromLine ?? 'none'}" to "${error.toLine ?? 'none'}" at "${error.sourceId}" (${error.sourceType}), which does not route`;
     case 'async_schema':
       return `schema for "${error.type}" (on "${error.entityId}") returned a promise; core validation is synchronous`;
     case 'registry_overflow':

@@ -1,8 +1,10 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkEdgeSection, ElkExtendedEdge, ElkNode, LayoutOptions as ElkOptions } from 'elkjs/lib/elk-api.js';
 
+import type { DiagramError } from './errors.js';
 import { normalize } from './normalize.js';
 import type { AnyRegistry, NodeShape } from './registry.js';
+import { type Result, ok } from './result.js';
 import type { LaidOutDiagram, LaidOutEdge, LaidOutNode, Point, Size, ValidDiagram, ValidNode } from './types.js';
 
 export type LayoutDirection = 'right' | 'down';
@@ -73,9 +75,10 @@ function elk(): InstanceType<typeof ELK> {
 export async function layout<R extends AnyRegistry>(
   diagram: ValidDiagram<R>,
   options: LayoutOptions = {},
-): Promise<LaidOutDiagram<R>> {
+): Promise<Result<LaidOutDiagram<R>, readonly DiagramError[]>> {
   const normalized = normalize(diagram);
-  return layoutLevel(normalized, options, false);
+  if (!normalized.ok) return normalized;
+  return ok(await layoutLevel(normalized.value, options, false));
 }
 
 /**
@@ -87,9 +90,10 @@ export async function layout<R extends AnyRegistry>(
 export async function layoutDeep<R extends AnyRegistry>(
   diagram: ValidDiagram<R>,
   options: LayoutOptions = {},
-): Promise<LaidOutDiagram<R>> {
+): Promise<Result<LaidOutDiagram<R>, readonly DiagramError[]>> {
   const normalized = normalize(diagram);
-  return layoutLevel(normalized, options, true);
+  if (!normalized.ok) return normalized;
+  return ok(await layoutLevel(normalized.value, options, true));
 }
 
 async function layoutLevel<R extends AnyRegistry>(
@@ -138,13 +142,7 @@ async function layoutLevel<R extends AnyRegistry>(
     });
   }
 
-  const edges: LaidOutEdge<R>[] = diagram.edges.map((edge) => {
-    const route = toRoute(routed.get(edge.id));
-    const typeDef = diagram.registry.edgeTypes[edge.type];
-    const wantsMarker = typeDef !== undefined && typeDef.marker !== 'none';
-
-    return { edge, route, markerAt: wantsMarker ? midpointOf(route) : null };
-  });
+  const edges: LaidOutEdge<R>[] = diagram.edges.map((edge) => ({ edge, route: toRoute(routed.get(edge.id)) }));
 
   return {
     __brand: 'LaidOutDiagram',
@@ -210,40 +208,3 @@ function push(points: Point[], point: Point): void {
   points.push({ x: point.x, y: point.y });
 }
 
-/**
- * The checkpoint sits at the halfway point *by travelled distance*, not by
- * segment count — otherwise a gate drifts toward whichever end has more bends.
- */
-function midpointOf(route: readonly Point[]): Point | null {
-  if (route.length === 0) return null;
-  const first = route[0];
-  if (first === undefined) return null;
-  if (route.length === 1) return first;
-
-  let total = 0;
-  for (let i = 1; i < route.length; i += 1) {
-    total += distance(route[i - 1], route[i]);
-  }
-
-  let travelled = 0;
-  const half = total / 2;
-  for (let i = 1; i < route.length; i += 1) {
-    const from = route[i - 1];
-    const to = route[i];
-    if (from === undefined || to === undefined) continue;
-
-    const segment = distance(from, to);
-    if (travelled + segment >= half) {
-      const ratio = segment === 0 ? 0 : (half - travelled) / segment;
-      return { x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio };
-    }
-    travelled += segment;
-  }
-
-  return route[route.length - 1] ?? first;
-}
-
-function distance(from: Point | undefined, to: Point | undefined): number {
-  if (from === undefined || to === undefined) return 0;
-  return Math.hypot(to.x - from.x, to.y - from.y);
-}
