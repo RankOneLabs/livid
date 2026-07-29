@@ -8,9 +8,9 @@ A monorepo of three packages. Only `core` exists so far.
 
 | Package | Role |
 |---|---|
-| `@livid/core` | Registry, validation, normalization, layout. No DOM, runs in Node. |
-| `@livid/svg` | Build-time SVG string. Zero client JS — for posts and portability. |
-| `@livid/react` | XY Flow canvas — for web apps and live-wired feeds. |
+| `@rankonelabs/livid-core` | Registry, validation, normalization, layout. No DOM, runs in Node. |
+| `@rankonelabs/livid-svg` | Build-time SVG string. Zero client JS — for posts and portability. |
+| `@rankonelabs/livid-react` | XY Flow canvas — for web apps and live-wired feeds. |
 
 ## Two gates before building
 

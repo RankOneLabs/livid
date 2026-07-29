@@ -1,8 +1,25 @@
 {
-  "name": "@livid/core",
-  "version": "0.0.0",
+  "name": "@rankonelabs/livid-core",
+  "version": "0.1.0",
   "type": "module",
   "description": "Headless core: registry, validation, normalization, layout. No DOM.",
+  "keywords": [
+    "diagram",
+    "architecture",
+    "layout",
+    "elk",
+    "svg"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RankOneLabs/livid.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/RankOneLabs/livid#readme",
+  "bugs": "https://github.com/RankOneLabs/livid/issues",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,9 +31,13 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -b",
-    "check": "tsc -b"
+    "check": "tsc -b",
+    "prepublishOnly": "tsc -b --force"
   },
   "dependencies": {
     "elkjs": "^0.9.3"

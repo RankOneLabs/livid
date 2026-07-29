@@ -11,9 +11,9 @@ legible by progressive disclosure rather than by leaving things out.
 
 | Package | Role |
 |---|---|
-| `@livid/core` | Headless. Registry, validation, normalization, layout. No DOM, runs in Node. |
-| `@livid/svg` | `LaidOutDiagram` → SVG string. Build-time, zero client JS. For posts and portability. |
-| `@livid/react` | `LaidOutDiagram` → XY Flow canvas. For web apps and live-wired feeds. |
+| `@rankonelabs/livid-core` | Headless. Registry, validation, normalization, layout. No DOM, runs in Node. |
+| `@rankonelabs/livid-svg` | `LaidOutDiagram` → SVG string. Build-time, zero client JS. For posts and portability. |
+| `@rankonelabs/livid-react` | `LaidOutDiagram` → XY Flow canvas. For web apps and live-wired feeds. |
 
 Only `core` exists so far.
 
