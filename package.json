@@ -11,10 +11,12 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "tsc -b packages/core",
+    "check": "tsc -b packages/core && tsc -p packages/core/tsconfig.test.json",
+    "test": "vitest run",
     "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo"
   },
   "devDependencies": {
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.10"
   }
 }

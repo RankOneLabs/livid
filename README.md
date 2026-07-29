@@ -89,6 +89,17 @@ nothing downstream re-declares them.
 Validation reports every problem in one pass, as values, with the drill-down
 path attached — a bad projection usually has more than one thing wrong with it.
 
+## Verification
+
+```
+npm run check   # build + typecheck, tests included
+npm test        # vitest
+```
+
+The suite validates against hand-rolled Standard Schema validators rather than
+a library, so the claim that core privileges none of them stays exercised — a
+zod-only suite would only prove zod works.
+
 ## Consumers
 
 - **paa.dev** — the PAA pipeline as the diagram, handoff documents and evidence
