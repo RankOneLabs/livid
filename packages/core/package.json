@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Headless core: registry, validation, normalization, layout. No DOM.",
+  "license": "MIT",
   "keywords": [
     "diagram",
     "architecture",

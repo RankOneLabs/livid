@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Living diagrams: schema-derived system maps with recursive drill-down.",
+  "license": "MIT",
   "engines": {
     "node": ">=20.19.0"
   },
