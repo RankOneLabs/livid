@@ -1,0 +1,167 @@
+# livid
+
+Living diagrams: system maps derived from schema, where every node and edge is
+real and drills down into the payload flowing through it. Dense systems made
+legible by progressive disclosure rather than by leaving things out.
+
+A monorepo of three packages. Only `core` exists so far.
+
+| Package | Role |
+|---|---|
+| `@livid/core` | Registry, validation, normalization, layout. No DOM, runs in Node. |
+| `@livid/svg` | Build-time SVG string. Zero client JS — for posts and portability. |
+| `@livid/react` | XY Flow canvas — for web apps and live-wired feeds. |
+
+## Two gates before building
+
+**Stop when uncertain.** Before introducing a pattern, dependency, file, or structural
+decision with no precedent in these standards or the existing codebase — stop and ask. A
+wrong foundational choice is expensive to unwind; a question is cheap. This applies
+especially to destructive file operations, schema and data-model decisions, new
+dependencies, and changes to public interfaces.
+
+**Data model before implementation.** No feature work begins until the domain model
+exists as named types, derived from the real data source. The model is not invented to
+fit code as it emerges. Improvised data shapes metastasize: every consumer invents its
+own slice, arguments proliferate, state scatters.
+
+## The pipeline
+
+```
+DiagramSpec ──validate──▶ ValidDiagram ──layout──▶ LaidOutDiagram ──▶ svg | react
+user-authored             core-only                core-only
+```
+
+`ValidDiagram` and `LaidOutDiagram` are branded, so there is no path from a spec to a
+rendered diagram that skips validation. Renderers accept `LaidOutDiagram` and nothing
+else — no validation, no layout, no schema knowledge.
+
+Layout lives in core rather than in each renderer. That is what makes the SVG in a post
+and the React canvas in an app the *same map* rather than two drawings that drifted.
+`LaidOutDiagram` is serializable JSON, so geometry is computed once at build time.
+
+`normalize` runs inside `layout` and cannot be skipped.
+
+## Where user control stops
+
+- **What data** → config, validated, brand-gated.
+- **How a type draws** → registry config (`shape`, `glyph`). Not component injection:
+  both renderers are closed, which is what guarantees they agree.
+- **Nothing structural** → graph invariants, normalization, layout, and edge routing
+  are core's.
+
+Detail views are derived from the type's schema rather than hand-written per type.
+
+## Vocabulary is registered, not enumerated
+
+Core enforces *discipline* — a cardinality limit, shape-carries-type,
+colour-carries-line, `isRouter` for control flow — but never membership. A pipeline
+standard and a codebase scanner declare different vocabularies and both render.
+
+Never hardcode a domain word in core. Core does not know what a "gate" is.
+
+## Routers carry control flow; edges carry payload
+
+Edges say *what flows* — a query, a log write, a payment authorization. Their detail
+schema shapes the payload you drill into. They have no say in what happens to flow.
+
+Everything meta belongs to node types declaring `isRouter`: branching out, condensing
+in, terminating, and changing line. What *decides* the routing — gate, threshold,
+reading tea leaves — is domain semantics in the router type's detail schema.
+
+Two invariants, both enforced:
+
+- **Fanning out is router-only.** Sinks with no outgoing edges stay ordinary.
+- **A line may only change at a router.** Needs resolved lines, so it runs after
+  inheritance — which is why `normalize` is fallible.
+
+## Pipelines as the default
+
+Express logic as composable pipelines of small named transforms — each takes typed
+input, returns typed output. If you cannot draw the data flow as a graph of typed nodes,
+rethink the design.
+
+- Each transform is independently testable — pure or pure-ish, reusable across flows.
+- Prefer `map` / `filter` / `flatMap` / `reduce` over accumulating into a mutable array.
+- Name every stage. A pipeline of named functions reads; a chain of anonymous lambdas
+  does not.
+- Pipelines are fractal: a node can itself be a pipeline.
+- Use a loop only when it is genuinely clearer — early break, side effects, or fixpoint
+  accumulation. `assignLines` is the standing example: line inheritance iterates to a
+  fixpoint, and a loop says that better than a fold does. Outside those cases, default
+  to the pipeline.
+
+## Errors as values
+
+`Result<T, E>` is the connecting contract between stages. Every fallible transform
+returns it; the caller narrows on `ok`. `try`/`catch` lives only at boundaries — and a
+consumer-supplied validator counts as one, since it is foreign code that may throw.
+
+Validation reports **every** problem in one pass, never first-failure. Use `combine` to
+accumulate errors across a collection rather than short-circuiting; use `partition` when
+partial results are still useful.
+
+Every error carries trace context — the drill-down path, the entity id, the offending
+value — so a failure deep in a nested level can be located without re-running anything.
+
+## Local primitives
+
+Roll small primitives locally — `Result`, domain error types, branded ids — rather than
+pull a library. They are a dozen lines, do not change, and importing them binds the
+project to someone else's release cadence for nothing in return.
+
+Standard Schema is vendored as types only for the same reason: consumers bring zod,
+valibot, arktype, or an ajv wrapper, and core privileges none of them. elkjs, for
+layout, is core's one runtime dependency.
+
+## Typing discipline
+
+- `strict` on, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`.
+- No `any` — use `unknown` and narrow. `DiagramSpec.detail` is `unknown` deliberately:
+  it is the untrusted boundary.
+- Structured data always has a named type. Never `Record<string, unknown>` for a known
+  shape.
+- A finite set of variants is a discriminated union — a literal tag plus a typed payload
+  per variant, never a bare string tag beside an untyped bag. `DiagramError` is the
+  reference example.
+- Domain identifiers get branded types: `NodeId`, `EdgeId`, `LineId`.
+- No non-null assertions (`!`) without a documented reason. Casts likewise — the two in
+  `validate.ts` carry comments explaining why the union cannot be built structurally.
+- One definition per type. A type used on two sides lives in a shared module both
+  import, never duplicated and hand-synced.
+
+## Arguments
+
+Three or more semantically related arguments → group them into one named typed object.
+Long pass-through argument lists are a layering smell, not a formatting one.
+
+## Testing
+
+Test behavior, not implementation — tests should survive refactors. Pure transforms are
+the unit-test surface. One clear assertion per test where practical; descriptive names.
+
+Test against hand-rolled Standard Schema validators rather than a library, so the claim
+that core privileges none of them stays exercised. A zod-only suite would only prove zod
+works.
+
+Module-local helpers are tested through their public caller rather than exported for the
+sake of a test.
+
+## Naming
+
+`camelCase` / `PascalCase` / `UPPER_SNAKE_CASE` per TypeScript norm. Descriptive over
+terse — `outgoingCount`, not `n`. Booleans read as questions — `isRouter`, `hasChildren`.
+
+## Modules
+
+Explicit named exports — avoid default exports. `index.ts` is the package's public API
+surface and may re-export; no other barrels. Source files use `.js` extensions on
+relative imports so emitted ESM resolves under Node.
+
+## Verification
+
+- `npm run check` — build plus typecheck, tests included.
+- `npm test` — vitest.
+- `npm run agents:check` — verifies generated `AGENTS.md` and `CLAUDE.md`.
+
+All three must pass before treating a change as complete.
