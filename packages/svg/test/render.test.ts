@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import type { LaidOutDiagram } from '@rankonelabs/livid-core';
 
-import { DEFAULT_PALETTE, labelPlacementOf, lineColour, renderSvg } from '../src/index.js';
+import { DEFAULT_PALETTE, labelPlacementOf, lineColour, renderFigure, renderSvg } from '../src/index.js';
 import { type TestRegistry, attributeValues, laidOut } from './helpers.js';
 
 let diagram: LaidOutDiagram<TestRegistry>;
@@ -50,6 +50,35 @@ describe('document', () => {
     expect(svg).not.toContain('NaN');
     const opening = svg.slice(0, svg.indexOf('>') + 1);
     expect(Number(/height="([\d.]+)"/.exec(opening)?.[1])).toBeGreaterThan(0);
+  });
+});
+
+describe('figure size', () => {
+  it('reports the size the markup declares', () => {
+    const figure = renderFigure(diagram);
+    const opening = figure.svg.slice(0, figure.svg.indexOf('>') + 1);
+
+    expect(opening).toContain(`width="${figure.width}"`);
+    expect(opening).toContain(`height="${figure.height}"`);
+    expect(opening).toContain(`viewBox="0 0 ${figure.width} ${figure.height}"`);
+  });
+
+  it('draws the same markup either way in', () => {
+    expect(renderFigure(diagram).svg).toBe(renderSvg(diagram));
+  });
+
+  it('reports a width wider than core laid out, because labels sit outside', () => {
+    // The reason this is worth returning at all: a consumer cannot derive it
+    // from `diagram.bounds`, since core does not place labels.
+    const figure = renderFigure(diagram, { levels: 'root' });
+    expect(figure.width).toBeGreaterThan(diagram.bounds.width);
+    expect(figure.height).toBeGreaterThan(diagram.bounds.height);
+  });
+
+  it('stays a positive size with nothing to draw', async () => {
+    const figure = renderFigure(await laidOut({ nodes: [], edges: [] }));
+    expect(figure.width).toBeGreaterThan(0);
+    expect(figure.height).toBeGreaterThan(0);
   });
 });
 

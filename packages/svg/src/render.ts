@@ -27,7 +27,34 @@ export interface SvgOptions {
   readonly levels?: 'root' | 'all';
 }
 
+/**
+ * Markup plus the size it wants to be drawn at.
+ *
+ * The size is part of the output because a page cannot get it any other way: an
+ * embedded figure has to decide between scaling down and scrolling when it is
+ * wider than its column, and CSS cannot read an SVG attribute to decide. The
+ * numbers are already computed here, so returning them beats every consumer
+ * parsing them back out of the string.
+ */
+export interface SvgFigure {
+  readonly svg: string;
+  /**
+   * Natural width in px. Includes labels sitting outside their shape, so it is
+   * wider than `diagram.bounds` — core does not know where labels go.
+   */
+  readonly width: number;
+  readonly height: number;
+}
+
+/** The markup alone, for callers with nothing to size. */
 export function renderSvg<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, options: SvgOptions = {}): string {
+  return renderFigure(diagram, options).svg;
+}
+
+export function renderFigure<R extends AnyRegistry>(
+  diagram: LaidOutDiagram<R>,
+  options: SvgOptions = {},
+): SvgFigure {
   const theme = resolveTheme(options.theme);
   const { padding, levelGap } = theme.metrics;
 
@@ -77,7 +104,7 @@ export function renderSvg<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, opt
 
   const title = options.title ?? null;
 
-  return [
+  const svg = [
     // `role="img"` is only correct alongside an accessible name; on its own it
     // makes a screen reader announce an unnamed image. Without a title the
     // element is left alone rather than hidden — a diagram is content, and
@@ -91,6 +118,10 @@ export function renderSvg<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, opt
   ]
     .filter((part) => part !== '')
     .join('\n');
+
+  // Rounded to match the attributes, so a consumer sizing a container against
+  // these numbers is working with the same values the markup carries.
+  return { svg, width: Number(round(width)), height: Number(round(height)) };
 }
 
 /* ------------------------------------------------------------------ *
