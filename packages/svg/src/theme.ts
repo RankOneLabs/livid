@@ -9,6 +9,17 @@
 /** Where a label sits when its shape cannot hold text. */
 export type LabelSide = 'below' | 'right';
 
+/**
+ * Which end of an edge draws a head, if any.
+ *
+ * Every livid edge is already directed in the data — `ValidEdge` has a source
+ * and a target — so drawing that direction is a question of look rather than of
+ * meaning, which is why it is theme config and not a structural option. The
+ * caller decides whether its figures say it out loud; the renderer only draws
+ * what it is told.
+ */
+export type EdgeArrowhead = 'none' | 'target';
+
 export interface Palette {
   /**
    * Colour token from `LineSpec.color` to a CSS colour. Tokens are the
@@ -52,6 +63,18 @@ export interface Metrics {
   /** Vertical space between stacked drill-down levels. */
   readonly levelGap: number;
   readonly labelSide: LabelSide;
+  /** `none` by default, so an existing figure draws exactly as it did. */
+  readonly edgeArrowhead: EdgeArrowhead;
+  /**
+   * Head length along the route, in stroke widths rather than px.
+   *
+   * Stroke widths because the head is drawn once and reused by every edge: a
+   * branch at `branchWeight` and track at `lineWeight` are the same marker, so
+   * a head proportionate to one is proportionate to the other.
+   */
+  readonly arrowLength: number;
+  /** Head width across the route, in stroke widths. */
+  readonly arrowWidth: number;
 }
 
 export interface SvgTheme {
@@ -99,6 +122,9 @@ export const DEFAULT_METRICS: Metrics = {
   padding: 44,
   levelGap: 96,
   labelSide: 'below',
+  edgeArrowhead: 'none',
+  arrowLength: 2.4,
+  arrowWidth: 2,
 };
 
 export const DEFAULT_THEME: SvgTheme = {

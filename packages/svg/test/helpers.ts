@@ -75,6 +75,43 @@ export async function laidOut(spec: DiagramSpec = SPEC): Promise<LaidOutDiagram<
   return laid.value;
 }
 
+/** Where one drawn edge ends, in the figure's own coordinates. */
+export interface DrawnEdgeEnd {
+  readonly x: number;
+  readonly y: number;
+  readonly strokeWidth: number;
+}
+
+/**
+ * The last point of every edge the figure actually drew, shifted by the level it
+ * was drawn in.
+ *
+ * Read back out of the markup rather than recomputed from the diagram, so a
+ * bounds assertion checks what the renderer drew instead of checking a second
+ * copy of how it decided to draw it. The last point is where `marker-end` puts
+ * an arrowhead, so it is the point a head has to have room around.
+ */
+export function drawnEdgeEnds(svg: string): readonly DrawnEdgeEnd[] {
+  return svg
+    .split('<g transform="translate(')
+    .slice(1)
+    .flatMap((level) => {
+      const shift = /^(-?[\d.]+),(-?[\d.]+)\)/.exec(level);
+      const shiftX = Number(shift?.[1] ?? 0);
+      const shiftY = Number(shift?.[2] ?? 0);
+
+      return [...level.matchAll(/<polyline [^>]*points="([^"]+)"[^>]*stroke-width="([\d.]+)"/g)].flatMap((edge) => {
+        const last = (edge[1] ?? '').trim().split(' ').at(-1) ?? '';
+        const [x, y] = last.split(',').map(Number);
+        const strokeWidth = Number(edge[2]);
+
+        return x === undefined || y === undefined || !Number.isFinite(x) || !Number.isFinite(y)
+          ? []
+          : [{ x: x + shiftX, y: y + shiftY, strokeWidth }];
+      });
+    });
+}
+
 /** Every numeric attribute of one kind, for bounds assertions. */
 export function attributeValues(svg: string, attribute: string): readonly number[] {
   return [...svg.matchAll(new RegExp(`${attribute}="(-?[\\d.]+)"`, 'g'))].flatMap((match) => {
