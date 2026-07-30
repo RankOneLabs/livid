@@ -69,7 +69,7 @@ export function renderFigure<R extends AnyRegistry>(
 
   const levels = levelsOf(diagram, options.caption ?? null, options.levels !== 'root');
   const title = options.title ?? null;
-  const arrowhead = arrowheadOf(theme.metrics, fingerprintOf(levels, theme, title));
+  const arrowhead = arrowheadOf(theme.metrics, () => fingerprintOf(levels, theme, title));
   const rendered = levels.map((level) => renderLevel(level, theme, arrowhead));
 
   const captionHeight = theme.typography.captionSize + theme.metrics.labelGap * 2;

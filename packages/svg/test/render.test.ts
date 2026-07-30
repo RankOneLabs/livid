@@ -7,6 +7,7 @@ import {
   type SvgOptions,
   DEFAULT_METRICS,
   DEFAULT_PALETTE,
+  arrowheadOf,
   arrowheadReach,
   labelPlacementOf,
   lineColour,
@@ -297,6 +298,28 @@ describe('arrowheads', () => {
 
   it('draws the same document off as it does unasked', () => {
     expect(renderSvg(diagram, { theme: { metrics: { edgeArrowhead: 'none' } } })).toBe(renderSvg(diagram));
+  });
+
+  /**
+   * Deriving the fingerprint walks every node, edge, and route point. A figure
+   * that draws no heads has nothing to name, so the default render must not pay
+   * for one — this asserts the thunk stays unforced rather than trusting that
+   * the mode is checked first.
+   */
+  it('does not derive a fingerprint for a figure that draws none', () => {
+    let derived = 0;
+    const fingerprint = (): string => {
+      derived += 1;
+      return 'unused';
+    };
+
+    expect(arrowheadOf({ ...DEFAULT_METRICS, edgeArrowhead: 'none' }, fingerprint)).toBeNull();
+    expect(derived).toBe(0);
+
+    expect(arrowheadOf({ ...DEFAULT_METRICS, edgeArrowhead: 'target' }, fingerprint)?.id).toBe(
+      'livid-arrow-unused',
+    );
+    expect(derived).toBe(1);
   });
 
   it('defines the head once, however many edges end with one', () => {

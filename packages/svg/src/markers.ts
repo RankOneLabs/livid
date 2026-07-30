@@ -31,14 +31,19 @@ export interface Arrowhead {
  * The head one figure will draw, or `null` when it draws none.
  *
  * `fingerprint` distinguishes this figure from any other inlined into the same
- * HTML document; `render.ts` derives it from what the figure draws.
+ * HTML document; `render.ts` derives it from what the figure draws. It arrives
+ * as a thunk rather than a string because deriving it walks every node, edge,
+ * and route point in the figure. Arrowheads are off by default, and that walk
+ * buys a default render nothing — so the mode check has to happen before the
+ * fingerprint is forced, not after. Keeping the thunk here rather than testing
+ * the mode at the call site leaves `'none'` with exactly one reader.
  */
-export function arrowheadOf(metrics: Metrics, fingerprint: string): Arrowhead | null {
+export function arrowheadOf(metrics: Metrics, fingerprint: () => string): Arrowhead | null {
   if (metrics.edgeArrowhead === 'none') return null;
 
   return {
     // Base36 hash characters only, so there is nothing here to escape.
-    id: `livid-arrow-${fingerprint}`,
+    id: `livid-arrow-${fingerprint()}`,
     length: metrics.arrowLength,
     width: metrics.arrowWidth,
   };
