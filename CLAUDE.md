@@ -184,3 +184,18 @@ relative imports so emitted ESM resolves under Node.
 - `npm run agents:check` — verifies generated `AGENTS.md` and `CLAUDE.md`.
 
 All three must pass before treating a change as complete.
+
+## Releasing
+
+Bump the version in the package's own `package.json`, in the PR that changes it. That is the
+entire ritual — no tag, no changelog file, no button. Merging to `main` publishes every
+workspace whose version is not yet on the registry, with provenance, over OIDC.
+
+The plan is a version diff against npm rather than a reading of what the merge changed, so a
+re-run publishes nothing and a version that missed its window goes out on the next push.
+`node scripts/plan-publish.mjs` prints that plan locally, against the live registry.
+
+Two consequences worth knowing before they surprise you. A package the registry has never
+heard of is *blocked*, not published: npm will not let a trusted publisher be configured until
+the name exists, so every package's first version is published by hand. And a version already
+on npm is immutable — shipping a fix means bumping again, never re-running the release.
