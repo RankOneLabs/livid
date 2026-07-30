@@ -71,6 +71,34 @@ one line is that line; track leaving a router onto another line already belongs
 to the new one, which is what makes an interchange read as a change. Edges that
 cross lines are drawn at `branchWeight`, lighter than the track they leave.
 
+## Styling hooks, and where motion lives
+
+Every node and edge carries hooks for the page's own stylesheet:
+
+| Element | Class | Attributes |
+| --- | --- | --- |
+| node `<g>` | `livid-node` | `data-type`, `data-node`, `data-line` |
+| edge `<polyline>` | `livid-edge` | `data-type`, `data-line`, `data-kind` (`track` \| `branch`) |
+
+Motion is not a renderer option, and that is on purpose. An inline SVG is stylable
+by the document around it, so hover states, transitions, and flow animation are
+already the consumer's to write — a renderer shipping animation config would be
+deciding something the page is better placed to decide. What the renderer owes is
+*identity*: which line, which type, track or branch. That is the one thing CSS
+cannot recover from geometry.
+
+```css
+/* Artifact flowing along the critical path, in the consumer's stylesheet. */
+@media (prefers-reduced-motion: no-preference) {
+  .livid-edge[data-kind='track'] {
+    stroke-dasharray: 1 14;
+    stroke-linecap: round;
+    animation: livid-flow 1.4s linear infinite;
+  }
+}
+@keyframes livid-flow { to { stroke-dashoffset: -15; } }
+```
+
 ## Drill-down
 
 Levels are stacked, not made interactive: a static file has to contain every

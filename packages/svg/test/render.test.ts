@@ -103,6 +103,50 @@ describe('content', () => {
   });
 });
 
+describe('styling hooks', () => {
+  it('tells an edge on its own line apart from one that branches', () => {
+    // The distinction CSS cannot recover from geometry, and the reason these
+    // hooks exist rather than an animation option on the renderer.
+    const svg = renderSvg(diagram, { levels: 'root' });
+    expect(svg).toContain('data-kind="track"');
+    expect(svg).toContain('data-kind="branch"');
+  });
+
+  it('names the line each edge and node belongs to', () => {
+    const svg = renderSvg(diagram, { levels: 'root' });
+    for (const line of diagram.lines) {
+      expect(svg).toContain(`data-line="${line.id}"`);
+    }
+  });
+
+  it('names the registry type of every node', () => {
+    const svg = renderSvg(diagram, { levels: 'root' });
+    for (const node of diagram.nodes) {
+      expect(svg).toContain(`data-type="${node.node.type}"`);
+      expect(svg).toContain(`data-node="${node.node.id}"`);
+    }
+  });
+
+  it('gives a consumer one class to select all of each', () => {
+    const svg = renderSvg(diagram, { levels: 'root' });
+    const routed = diagram.edges.filter((edge) => edge.route.length >= 2).length;
+
+    expect((svg.match(/class="livid-node"/g) ?? []).length).toBe(diagram.nodes.length);
+    expect((svg.match(/class="livid-edge"/g) ?? []).length).toBe(routed);
+  });
+
+  it('escapes hook values rather than trusting ids', async () => {
+    const hostile = await laidOut({
+      nodes: [{ id: 'a"><script>', type: 'work', label: 'x' }],
+      edges: [],
+    });
+
+    const svg = renderSvg(hostile);
+    expect(svg).not.toContain('<script>');
+    expect(svg).toContain('data-node="a&quot;&gt;&lt;script&gt;"');
+  });
+});
+
 describe('labels', () => {
   it('keeps labels inside shapes that can hold them', () => {
     expect(labelPlacementOf('rect')).toBe('inside');

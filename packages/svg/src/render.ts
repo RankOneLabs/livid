@@ -9,6 +9,14 @@
  * Drill-down levels are stacked rather than made interactive. A static file
  * has to contain every level it can reveal, and stacking reveals them without
  * script; the React renderer is where descending on demand belongs.
+ *
+ * Every node and edge carries `data-*` hooks so the page around an inline SVG can
+ * style, highlight, and animate the map from its own stylesheet. That is
+ * deliberately where motion lives: a renderer shipping animation config would be
+ * deciding something the consumer is better placed to decide, and CSS can already
+ * do all of it. What the renderer owes is *identity* — which line, which type,
+ * track or branch — because that is the one thing CSS cannot recover from
+ * geometry alone.
  */
 
 import type { AnyRegistry, LaidOutDiagram, LaidOutEdge, LaidOutNode, Point } from '@rankonelabs/livid-core';
@@ -216,7 +224,10 @@ function renderEdge<R extends AnyRegistry>(
 
   return {
     markup:
-      `<polyline points="${points}" fill="none" stroke="${colourOf(targetLine)}" stroke-width="${weight}" ` +
+      `<polyline class="livid-edge" data-type="${escapeAttr(edge.edge.type)}" ` +
+      `data-line="${targetLine === null ? '' : escapeAttr(targetLine)}" ` +
+      `data-kind="${branching ? 'branch' : 'track'}" ` +
+      `points="${points}" fill="none" stroke="${colourOf(targetLine)}" stroke-width="${weight}" ` +
       `stroke-linejoin="round" stroke-linecap="round"/>`,
     box: boxAround(edge.route, weight / 2),
   };
@@ -254,7 +265,9 @@ function renderNode<R extends AnyRegistry>(
 
   return {
     markup: [
-      `<g>`,
+      `<g class="livid-node" data-type="${escapeAttr(placed.node.type)}" ` +
+        `data-node="${escapeAttr(placed.node.id)}" ` +
+        `data-line="${placed.node.line === null ? '' : escapeAttr(placed.node.line)}">`,
       `<title>${escapeText(description)}</title>`,
       shapeMarkup(shape, box, {
         fill: theme.palette.nodeFill,
