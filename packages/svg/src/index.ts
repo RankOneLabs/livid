@@ -8,6 +8,7 @@
 export { type SvgOptions, type SvgFigure, renderSvg, renderFigure, escapeText, escapeAttr } from './render.js';
 
 export {
+  type EdgeArrowhead,
   type LabelSide,
   type Palette,
   type Typography,
@@ -38,3 +39,11 @@ export {
 } from './geometry.js';
 
 export { type ShapeStyle, shapeMarkup, glyphMarkup } from './shapes.js';
+
+export {
+  type Arrowhead,
+  arrowDefsMarkup,
+  arrowEndAttr,
+  arrowheadOf,
+  arrowheadReach,
+} from './markers.js';

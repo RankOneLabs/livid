@@ -22,6 +22,7 @@
 import type { AnyRegistry, LaidOutDiagram, LaidOutEdge, LaidOutNode, Point } from '@rankonelabs/livid-core';
 
 import { type Box, EMPTY_BOX, boxAround, boxOf, placeLabel, unionOf, withExtent } from './geometry.js';
+import { type Arrowhead, arrowDefsMarkup, arrowEndAttr, arrowheadOf, arrowheadReach } from './markers.js';
 import { glyphMarkup, shapeMarkup } from './shapes.js';
 import { type SvgTheme, type SvgThemeOverrides, lineColour, resolveTheme } from './theme.js';
 
@@ -67,7 +68,9 @@ export function renderFigure<R extends AnyRegistry>(
   const { padding, levelGap } = theme.metrics;
 
   const levels = levelsOf(diagram, options.caption ?? null, options.levels !== 'root');
-  const rendered = levels.map((level) => renderLevel(level, theme));
+  const title = options.title ?? null;
+  const arrowhead = arrowheadOf(theme.metrics, fingerprintOf(levels, theme, title));
+  const rendered = levels.map((level) => renderLevel(level, theme, arrowhead));
 
   const captionHeight = theme.typography.captionSize + theme.metrics.labelGap * 2;
   const width =
@@ -110,8 +113,6 @@ export function renderFigure<R extends AnyRegistry>(
     })
     .join('\n');
 
-  const title = options.title ?? null;
-
   const svg = [
     // `role="img"` is only correct alongside an accessible name; on its own it
     // makes a screen reader announce an unnamed image. Without a title the
@@ -120,6 +121,9 @@ export function renderFigure<R extends AnyRegistry>(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${round(width)}" height="${round(height)}" ` +
       `viewBox="0 0 ${round(width)} ${round(height)}"${title === null ? '' : ` role="img" aria-label="${escapeAttr(title)}"`}>`,
     title === null ? '' : `<title>${escapeText(title)}</title>`,
+    // One definition for the whole document, however many levels and edges are
+    // stacked below it, and nothing at all unless the theme asked for heads.
+    arrowhead === null ? '' : arrowDefsMarkup(arrowhead),
     `<rect width="100%" height="100%" fill="${theme.palette.surface}"/>`,
     body,
     `</svg>`,
@@ -174,7 +178,11 @@ function heightOf(level: RenderedLevel, captionHeight: number): number {
  * One level
  * ------------------------------------------------------------------ */
 
-function renderLevel<R extends AnyRegistry>(level: Level<R>, theme: SvgTheme): RenderedLevel {
+function renderLevel<R extends AnyRegistry>(
+  level: Level<R>,
+  theme: SvgTheme,
+  arrowhead: Arrowhead | null,
+): RenderedLevel {
   const { diagram } = level;
   const colours = new Map(
     diagram.lines.map((line, index) => [line.id as string, lineColour(theme.palette, line.color, index)]),
@@ -183,8 +191,9 @@ function renderLevel<R extends AnyRegistry>(level: Level<R>, theme: SvgTheme): R
     (line === null ? undefined : colours.get(line)) ?? theme.palette.caption;
 
   const lineOfNode = new Map(diagram.nodes.map((node) => [node.node.id as string, node.node.line]));
+  const context: EdgeContext = { lineOfNode, colourOf, theme, arrowhead };
 
-  const edges = diagram.edges.map((edge) => renderEdge(edge, lineOfNode, colourOf, theme));
+  const edges = diagram.edges.map((edge) => renderEdge(edge, context));
   const nodes = diagram.nodes.map((node) => renderNode(node, diagram, colourOf, theme));
 
   // Edges first so tracks pass under stations rather than over them.
@@ -201,16 +210,24 @@ interface Part {
 }
 
 /**
+ * What an edge needs beyond its own route: which line each end belongs to, the
+ * colours and weights of the level it is drawn in, and the head to finish with
+ * when the figure draws direction.
+ */
+interface EdgeContext {
+  readonly lineOfNode: ReadonlyMap<string, string | null>;
+  readonly colourOf: (line: string | null) => string;
+  readonly theme: SvgTheme;
+  readonly arrowhead: Arrowhead | null;
+}
+
+/**
  * An edge takes the colour of where it is going. Track between two stations on
  * one line is that line; track leaving a router onto another line already
  * belongs to the new one, which is what makes an interchange read as a change.
  */
-function renderEdge<R extends AnyRegistry>(
-  edge: LaidOutEdge<R>,
-  lineOfNode: ReadonlyMap<string, string | null>,
-  colourOf: (line: string | null) => string,
-  theme: SvgTheme,
-): Part {
+function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeContext): Part {
+  const { lineOfNode, colourOf, theme, arrowhead } = context;
   const sourceLine = lineOfNode.get(edge.edge.source) ?? null;
   const targetLine = lineOfNode.get(edge.edge.target) ?? null;
   const branching = sourceLine !== targetLine;
@@ -228,9 +245,25 @@ function renderEdge<R extends AnyRegistry>(
       `data-line="${targetLine === null ? '' : escapeAttr(targetLine)}" ` +
       `data-kind="${branching ? 'branch' : 'track'}" ` +
       `points="${points}" fill="none" stroke="${colourOf(targetLine)}" stroke-width="${weight}" ` +
-      `stroke-linejoin="round" stroke-linecap="round"/>`,
-    box: boxAround(edge.route, weight / 2),
+      `stroke-linejoin="round" stroke-linecap="round"` +
+      `${arrowhead === null ? '' : ` ${arrowEndAttr(arrowhead)}`}/>`,
+    box: unionOf([boxAround(edge.route, weight / 2), headBox(edge.route, weight, arrowhead)]),
   };
+}
+
+/**
+ * Space the head occupies, which the viewport has to include.
+ *
+ * Half a stroke width around the route — all an undecorated edge needs — cuts
+ * straight through an arrowhead, and a consumer sizing a scroll container from
+ * `SvgFigure.width` would show that as a visibly clipped figure rather than as
+ * a stray pixel of overflow. So the head's reach is reserved around the vertex
+ * it is drawn at, which for `marker-end` is the route's last point.
+ */
+function headBox(route: readonly Point[], strokeWidth: number, arrowhead: Arrowhead | null): Box {
+  const tip = route[route.length - 1];
+  if (arrowhead === null || tip === undefined) return EMPTY_BOX;
+  return boxAround([tip], arrowheadReach(arrowhead, strokeWidth));
 }
 
 function renderNode<R extends AnyRegistry>(
@@ -285,6 +318,66 @@ function renderNode<R extends AnyRegistry>(
       .join('\n'),
     box: unionOf([box, label.box]),
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Figure identity
+ * ------------------------------------------------------------------ */
+
+/**
+ * A short, stable name for *this* figure, for the one DOM id it needs.
+ *
+ * Two figures inlined into one HTML document share a DOM, so a fixed marker id
+ * would have the second figure's edges resolve against the first figure's
+ * definition — and duplicate ids are invalid markup besides. A counter or a
+ * random suffix would separate them at the cost of purity: the same diagram
+ * would render differently on two builds, which a build-time renderer cannot
+ * afford. So the suffix is a hash of what the figure draws. Same input, same id;
+ * different figures, different ids.
+ *
+ * A collision degrades rather than breaks. Every head is filled from
+ * `context-stroke` and sized in stroke widths, so two figures that agree on the
+ * head's proportions have interchangeable definitions — and those proportions
+ * are hashed too, so two that disagree cannot quietly share one.
+ */
+function fingerprintOf<R extends AnyRegistry>(
+  levels: readonly Level<R>[],
+  theme: SvgTheme,
+  title: string | null,
+): string {
+  const head: readonly (string | number)[] = [
+    title ?? '',
+    theme.metrics.arrowLength,
+    theme.metrics.arrowWidth,
+  ];
+
+  const drawn = levels.flatMap((level) => [
+    level.caption ?? '',
+    ...level.diagram.nodes.map(
+      (node) =>
+        `${node.node.id}:${node.node.type}:${node.position.x},${node.position.y}:` +
+        `${node.size.width}x${node.size.height}`,
+    ),
+    ...level.diagram.edges.map(
+      (edge) => `${edge.edge.id}:${edge.route.map((point) => `${point.x},${point.y}`).join(';')}`,
+    ),
+  ]);
+
+  return hash32([...head, ...drawn].join('|'));
+}
+
+/**
+ * FNV-1a, 32 bits, base36. Rolled locally like the rest of the primitives here:
+ * it is one expression, it never changes, and it is a fingerprint rather than a
+ * cryptographic claim.
+ */
+function hash32(value: string): string {
+  const OFFSET_BASIS = 0x811c9dc5;
+  const PRIME = 0x01000193;
+
+  return [...value]
+    .reduce((hash, character) => Math.imul(hash ^ (character.codePointAt(0) ?? 0), PRIME) >>> 0, OFFSET_BASIS)
+    .toString(36);
 }
 
 /* ------------------------------------------------------------------ *

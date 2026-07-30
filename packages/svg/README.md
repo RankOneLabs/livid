@@ -71,6 +71,34 @@ one line is that line; track leaving a router onto another line already belongs
 to the new one, which is what makes an interchange read as a change. Edges that
 cross lines are drawn at `branchWeight`, lighter than the track they leave.
 
+## Direction
+
+Edges draw no arrowheads unless you ask for them:
+
+```ts
+const svg = renderSvg(laid.value, { theme: { metrics: { edgeArrowhead: 'target' } } })
+```
+
+Off by default, and it is theme config rather than a structural option, because
+every livid edge is *already* directed in the data — core gives an edge a source
+and a target — so whether the drawing says so out loud is a question of look. A
+transit map with a head on every segment reads busier than one without; the
+caller knows which of the two its figure is, and the renderer draws what it is
+told.
+
+One `<marker>` is defined per figure and shared by every edge. It fills from
+`context-stroke`, so a head is whatever colour its edge is — including when the
+palette is CSS custom properties (`var(--accent)`) that only resolve at paint
+time, which a per-colour definition could never anticipate. It is sized in
+`strokeWidth` units, so the same head serves a track at `lineWeight` and a
+branch at `branchWeight` in proportion. Tune the proportions with `arrowLength`
+and `arrowWidth`, both in stroke widths rather than px.
+
+The head is drawn back from the route's last point, which core puts on the
+target's boundary — so it points *at* the node from outside rather than
+disappearing under it. `renderFigure` reserves the room it needs, so turning
+heads on never clips a figure sized from `width` and `height`.
+
 ## Styling hooks, and where motion lives
 
 Every node and edge carries hooks for the page's own stylesheet:

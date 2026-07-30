@@ -2,8 +2,18 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import type { LaidOutDiagram } from '@rankonelabs/livid-core';
 
-import { DEFAULT_PALETTE, labelPlacementOf, lineColour, renderFigure, renderSvg } from '../src/index.js';
-import { type TestRegistry, attributeValues, laidOut } from './helpers.js';
+import {
+  type Arrowhead,
+  type SvgOptions,
+  DEFAULT_METRICS,
+  DEFAULT_PALETTE,
+  arrowheadReach,
+  labelPlacementOf,
+  lineColour,
+  renderFigure,
+  renderSvg,
+} from '../src/index.js';
+import { type TestRegistry, attributeValues, drawnEdgeEnds, laidOut } from './helpers.js';
 
 let diagram: LaidOutDiagram<TestRegistry>;
 
@@ -261,6 +271,148 @@ describe('drill-down levels', () => {
     expect(match).not.toBeNull();
     expect(Number(match?.[1])).toBeGreaterThan(0);
     expect(Number(match?.[2])).toBeGreaterThan(0);
+  });
+});
+
+describe('arrowheads', () => {
+  const ARROWHEADS: SvgOptions = { theme: { metrics: { edgeArrowhead: 'target' } } };
+
+  /**
+   * A head far larger than the nodes it points at. Default heads land inside the
+   * node boxes that already set the figure's bounds, so this is what shows the
+   * reserved room is real rather than nominal.
+   */
+  const OVERSIZED: Arrowhead = { id: 'oversized', length: 40, width: 30 };
+  const OVERSIZED_ARROWHEADS: SvgOptions = {
+    theme: { metrics: { edgeArrowhead: 'target', arrowLength: OVERSIZED.length, arrowWidth: OVERSIZED.width } },
+  };
+
+  const markerIdOf = (svg: string): string | undefined => /<marker id="([^"]+)"/.exec(svg)?.[1];
+
+  it('draws none unless the theme asks for them', () => {
+    const svg = renderSvg(diagram);
+    expect(svg).not.toContain('<marker');
+    expect(svg).not.toContain('marker-end');
+  });
+
+  it('draws the same document off as it does unasked', () => {
+    expect(renderSvg(diagram, { theme: { metrics: { edgeArrowhead: 'none' } } })).toBe(renderSvg(diagram));
+  });
+
+  it('defines the head once, however many edges end with one', () => {
+    const svg = renderSvg(diagram);
+    const heads = renderSvg(diagram, ARROWHEADS);
+
+    expect((heads.match(/<defs>/g) ?? []).length).toBe(1);
+    expect((heads.match(/<marker /g) ?? []).length).toBe(1);
+    // More edges than definitions, across more than one stacked level.
+    expect((heads.match(/marker-end=/g) ?? []).length).toBeGreaterThan(1);
+    expect((svg.match(/<polyline /g) ?? []).length).toBeGreaterThan(1);
+  });
+
+  it('ends every drawn edge with the head it defined', () => {
+    const svg = renderSvg(diagram, ARROWHEADS);
+    const id = markerIdOf(svg);
+    const ends = (svg.match(new RegExp(`marker-end="url\\(#${id ?? ''}\\)"`, 'g')) ?? []).length;
+
+    expect(id).toBeDefined();
+    expect(ends).toBe((svg.match(/<polyline /g) ?? []).length);
+  });
+
+  it('takes both its colour and its size from the edge it ends', () => {
+    // Why there is one definition rather than one per line: a consumer's palette
+    // may be `var(--accent)` rather than a literal, which cannot be baked into a
+    // marker at build time. Size follows the same way, so the one head serves
+    // both a track at `lineWeight` and a branch at `branchWeight`.
+    const svg = renderSvg(diagram, ARROWHEADS);
+    expect(svg).toContain('fill="context-stroke"');
+    expect(svg).toContain('markerUnits="strokeWidth"');
+  });
+
+  it('reserves at least as much room as the same figure without heads', () => {
+    const off = renderFigure(diagram);
+    const on = renderFigure(diagram, ARROWHEADS);
+
+    expect(on.width).toBeGreaterThanOrEqual(off.width);
+    expect(on.height).toBeGreaterThanOrEqual(off.height);
+  });
+
+  it('grows the figure when a head reaches past what it points at', () => {
+    // Half a stroke width around the route — all an undecorated edge needs —
+    // would cut straight through this one, and a consumer sizing a scroll
+    // container from these numbers would show that as a clipped figure.
+    const off = renderFigure(diagram);
+    const on = renderFigure(diagram, OVERSIZED_ARROWHEADS);
+
+    expect(on.width).toBeGreaterThan(off.width);
+    expect(on.height).toBeGreaterThan(off.height);
+  });
+
+  it('keeps every head inside the size it reports', () => {
+    const cases: readonly { readonly head: Arrowhead; readonly options: SvgOptions }[] = [
+      {
+        head: { id: 'default', length: DEFAULT_METRICS.arrowLength, width: DEFAULT_METRICS.arrowWidth },
+        options: ARROWHEADS,
+      },
+      { head: OVERSIZED, options: OVERSIZED_ARROWHEADS },
+    ];
+
+    for (const { head, options } of cases) {
+      const figure = renderFigure(diagram, options);
+      const ends = drawnEdgeEnds(figure.svg);
+
+      expect(ends.length).toBeGreaterThan(0);
+      for (const end of ends) {
+        const reach = arrowheadReach(head, end.strokeWidth);
+        expect(end.x - reach).toBeGreaterThanOrEqual(0);
+        expect(end.x + reach).toBeLessThanOrEqual(figure.width);
+        expect(end.y - reach).toBeGreaterThanOrEqual(0);
+        expect(end.y + reach).toBeLessThanOrEqual(figure.height);
+      }
+    }
+  });
+
+  it('reaches further with a heavier line, since one head serves every weight', () => {
+    const head: Arrowhead = { id: 'x', length: 2, width: 2 };
+    expect(arrowheadReach(head, 8)).toBeGreaterThan(arrowheadReach(head, 4));
+  });
+
+  it('names its marker something no other figure in the document will use', async () => {
+    // Two figures inlined into one page share a DOM: a fixed id would have the
+    // second figure's edges resolve against the first figure's marker.
+    const other = await laidOut({
+      lines: [{ id: 'main', label: 'Main', color: 'token-main' }],
+      nodes: [
+        { id: 'a', type: 'work', label: 'a', line: 'main' },
+        { id: 'b', type: 'work', label: 'b', line: 'main' },
+      ],
+      edges: [{ id: 'ab', type: 'flow', source: 'a', target: 'b' }],
+    });
+
+    const first = markerIdOf(renderSvg(diagram, ARROWHEADS));
+    const second = markerIdOf(renderSvg(other, ARROWHEADS));
+
+    expect(first).toBeDefined();
+    expect(second).not.toBe(first);
+  });
+
+  it('names it something a document can hold as an id', () => {
+    expect(markerIdOf(renderSvg(diagram, ARROWHEADS))).toMatch(/^[A-Za-z][\w-]*$/);
+  });
+
+  it('answers the same figure with the same id every time', () => {
+    // The alternative to hashing content is a counter or a random suffix, which
+    // would separate two figures at the cost of a renderer that no longer
+    // answers the same question the same way twice.
+    expect(renderSvg(diagram, ARROWHEADS)).toBe(renderSvg(diagram, ARROWHEADS));
+  });
+
+  it('still draws a finite document with heads on and nothing to draw', async () => {
+    const empty = await laidOut({ nodes: [], edges: [] });
+    const figure = renderFigure(empty, ARROWHEADS);
+
+    expect(figure.svg).not.toContain('Infinity');
+    expect(figure.width).toBeGreaterThan(0);
   });
 });
 
