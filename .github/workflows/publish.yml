@@ -9,27 +9,78 @@
 # 0.1.1 of livid-svg went out through this workflow with no attestation at all —
 # so `--provenance` is what actually gives a package a verifiable link back to
 # the commit and workflow that built it.
+#
+# Releases are automatic. A push to main plans a release for every workspace whose
+# package.json version is not yet on the registry, so bumping the version in the
+# feature PR is the whole release ritual — there is no tag, no changelog file, and
+# no button to remember. The plan is a version diff rather than a reading of what
+# the merge changed, which makes it idempotent (a re-run publishes nothing) and
+# self-healing (a version that missed its window goes out on the next push).
+# Manual dispatch is kept for recovery and for narrowing a run to one workspace.
 name: Publish
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       package:
-        description: Workspace to publish
+        description: Workspace to publish, or every workspace that needs one
         required: true
+        default: all
         type: choice
         options:
+          - all
           - '@rankonelabs/livid-core'
           - '@rankonelabs/livid-svg'
 
+# Two merges in quick succession must not race into publishing the same version
+# twice. Queue rather than cancel: a cancelled run here is a dropped release.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 permissions:
   contents: read
-  # The whole point: lets the runner mint an OIDC token npm will trust.
-  id-token: write
 
 jobs:
-  publish:
+  # Decides what to publish before any credential is minted, so the common case —
+  # a merge that changes no version — never reaches a job that can write to npm.
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.plan.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.14.0'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Reads the registry only, and installs nothing: the planner has no dependencies.
+      - name: Plan the release
+        id: plan
+        env:
+          # Empty on push, which the planner reads the same as `all`.
+          SELECTED: ${{ inputs.package }}
+        run: node scripts/plan-publish.mjs --selected "$SELECTED"
+
+  publish:
+    needs: plan
+    if: needs.plan.outputs.packages != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The whole point: lets the runner mint an OIDC token npm will trust.
+      id-token: write
+    strategy:
+      # One package failing must not cancel another package's release.
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.plan.outputs.packages) }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -49,10 +100,11 @@ jobs:
       - run: npm ci
 
       # A broken package is worse than an unpublished one, so the same gates
-      # that guard a merge guard a release.
+      # that guard a merge guard a release. `check` also emits dist/, which is
+      # the only thing `files` ships.
       - run: npm run check
       - run: npm test
       - run: npm run agents:check
 
-      - name: Publish ${{ inputs.package }}
-        run: npm publish --provenance --workspace ${{ inputs.package }}
+      - name: Publish ${{ matrix.package }}
+        run: npm publish --provenance --workspace ${{ matrix.package }}
