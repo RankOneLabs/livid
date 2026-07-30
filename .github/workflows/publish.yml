@@ -5,8 +5,10 @@
 # until the package exists, so the *first* version of each package has to be
 # published by hand; every version after that comes through here.
 #
-# Provenance is attested automatically when publishing over OIDC, so packages
-# get a verifiable link back to the commit and workflow that built them.
+# Provenance is asked for explicitly. It is not implied by publishing over OIDC —
+# 0.1.1 of livid-svg went out through this workflow with no attestation at all —
+# so `--provenance` is what actually gives a package a verifiable link back to
+# the commit and workflow that built it.
 name: Publish
 
 on:
@@ -29,11 +31,11 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # Trusted publishing needs Node >= 22.14.0.
           node-version: '22.14.0'
@@ -53,4 +55,4 @@ jobs:
       - run: npm run agents:check
 
       - name: Publish ${{ inputs.package }}
-        run: npm publish --workspace ${{ inputs.package }}
+        run: npm publish --provenance --workspace ${{ inputs.package }}
