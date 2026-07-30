@@ -21,7 +21,7 @@ this package emits zero dependencies of its own.
 
 ```ts
 import { layout, validateDiagram } from '@rankonelabs/livid-core'
-import { renderSvg } from '@rankonelabs/livid-svg'
+import { renderFigure, renderSvg } from '@rankonelabs/livid-svg'
 
 const valid = validateDiagram(registry, spec)
 if (!valid.ok) return valid.error
