@@ -5,7 +5,7 @@
  * this package measures nothing and lays out nothing; it draws.
  */
 
-export { type SvgOptions, renderSvg, escapeText, escapeAttr } from './render.js';
+export { type SvgOptions, type SvgFigure, renderSvg, renderFigure, escapeText, escapeAttr } from './render.js';
 
 export {
   type LabelSide,

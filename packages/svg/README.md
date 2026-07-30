@@ -21,7 +21,7 @@ this package emits zero dependencies of its own.
 
 ```ts
 import { layout, validateDiagram } from '@rankonelabs/livid-core'
-import { renderSvg } from '@rankonelabs/livid-svg'
+import { renderFigure, renderSvg } from '@rankonelabs/livid-svg'
 
 const valid = validateDiagram(registry, spec)
 if (!valid.ok) return valid.error
@@ -34,6 +34,18 @@ const svg = renderSvg(laid.value, {
   theme: { palette: { lines: { 'line-critical': '#D64500', 'line-parallel': '#1B6CA8' } } },
 })
 ```
+
+Use `renderFigure` instead when the page has to size a container. It returns the
+same markup plus the size the figure wants:
+
+```ts
+const { svg, width, height } = renderFigure(laid.value, { title: 'Refund approval at HITL' })
+```
+
+Those numbers cannot be derived from `diagram.bounds` — core does not know where
+labels go, so the figure is wider than the layout. An embedded diagram needs them
+to choose between scaling down and scrolling when it is wider than its column,
+and CSS cannot read an SVG attribute to decide.
 
 ## Labels
 
