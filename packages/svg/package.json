@@ -1,6 +1,6 @@
 {
   "name": "@rankonelabs/livid-svg",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "LaidOutDiagram to SVG string. Build-time, zero client JS.",
   "license": "MIT",
