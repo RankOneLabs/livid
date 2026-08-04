@@ -1,33 +1,39 @@
 @import "@xyflow/react/dist/style.css";
 
 .livid-react { width: 100%; height: 100%; min-height: 320px; --livid-base: #58758f; --livid-muted: #697681; --livid-accent: #36d7b7; --livid-danger: #ef5b6c; --livid-ghost: #38434c; }
-.livid-react-node { box-sizing: border-box; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; gap: .55rem; padding: .65rem 1rem; color: #eaf6f4; background: #14242d; border: 2px solid #58758f; transition: background-color 180ms ease, border-color 180ms ease, opacity 180ms ease, transform 180ms ease; }
-.livid-react-node[data-shape="rounded"] { border-radius: 12px; }
-.livid-react-node[data-shape="stadium"] { border-radius: 999px; }
-.livid-react-node[data-shape="circle"] { border-radius: 50%; }
-.livid-react-node[data-shape="diamond"] { transform: rotate(45deg) scale(.72); }
-.livid-react-node[data-shape="diamond"] > span { transform: rotate(-45deg); }
-.livid-react-node[data-shape="hexagon"] { clip-path: polygon(20% 0,80% 0,100% 50%,80% 100%,20% 100%,0 50%); }
-.livid-react-node[data-shape="cylinder"] { border-radius: 50% / 14%; }
-.livid-react-node[data-tint="muted"] { background: color-mix(in srgb, var(--livid-muted) 26%, #14242d); border-color: var(--livid-muted); }
-.livid-react-node[data-tint="base"] { background: color-mix(in srgb, var(--livid-base) 28%, #14242d); border-color: var(--livid-base); }
-.livid-react-node[data-tint="accent"] { background: color-mix(in srgb, var(--livid-accent) 25%, #14242d); border-color: var(--livid-accent); }
-.livid-react-node[data-tint="danger"] { background: color-mix(in srgb, var(--livid-danger) 28%, #14242d); border-color: var(--livid-danger); }
-.livid-react-node[data-tint="ghost"] { opacity: .42; border-color: var(--livid-ghost); }
+.livid-react-node { box-sizing: border-box; width: 100%; height: 100%; position: relative; color: #eaf6f4; }
+.livid-react-shape { box-sizing: border-box; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; gap: .55rem; padding: .65rem 1rem; background: #14242d; border: 2px solid #58758f; transition: background-color 180ms ease, border-color 180ms ease, opacity 180ms ease, filter 180ms ease; }
+.livid-react-node[data-shape="rounded"] .livid-react-shape { border-radius: 10px; }
+.livid-react-node[data-shape="stadium"] .livid-react-shape { border-radius: 999px; }
+.livid-react-node[data-shape="circle"] .livid-react-shape { border-radius: 50%; }
+.livid-react-node[data-shape="diamond"] .livid-react-shape { clip-path: polygon(50% 0,100% 50%,50% 100%,0 50%); }
+.livid-react-node[data-shape="hexagon"] .livid-react-shape { clip-path: polygon(18% 0,82% 0,100% 50%,82% 100%,18% 100%,0 50%); }
+.livid-react-node[data-shape="cylinder"] .livid-react-shape { border-radius: 50% / 14%; }
+.livid-react-node[data-tint="muted"] .livid-react-shape { background: color-mix(in srgb, var(--livid-muted) 26%, #14242d); border-color: var(--livid-muted); }
+.livid-react-node[data-tint="base"] .livid-react-shape { background: color-mix(in srgb, var(--livid-base) 28%, #14242d); border-color: var(--livid-base); }
+.livid-react-node[data-tint="accent"] .livid-react-shape { background: color-mix(in srgb, var(--livid-accent) 25%, #14242d); border-color: var(--livid-accent); }
+.livid-react-node[data-tint="danger"] .livid-react-shape { background: color-mix(in srgb, var(--livid-danger) 28%, #14242d); border-color: var(--livid-danger); }
+.livid-react-node[data-tint="ghost"] .livid-react-shape { opacity: .42; border-color: var(--livid-ghost); }
 .livid-react-edge { stroke: var(--livid-base); transition: stroke 180ms ease, opacity 180ms ease; }
 .livid-react-edge[data-tint="accent"] { stroke: var(--livid-accent); }
 .livid-react-edge[data-tint="danger"] { stroke: var(--livid-danger); }
 .livid-react-edge[data-tint="ghost"] { stroke: var(--livid-ghost); opacity: .42; }
-.livid-react [data-anim="pulse"] { animation: livid-pulse 1.5s ease-in-out infinite; }
-.livid-react [data-anim="stall"] { animation: livid-stall .8s steps(2,end) infinite; }
+.livid-react-node[data-anim="pulse"] .livid-react-shape { animation: livid-pulse 1.5s ease-in-out infinite; }
+.livid-react-node[data-anim="stall"] .livid-react-shape { animation: livid-stall .8s steps(2,end) infinite; }
+.livid-react-edge[data-anim="pulse"] { animation: livid-pulse 1.5s ease-in-out infinite; }
+.livid-react-edge[data-anim="stall"] { animation: livid-stall .8s steps(2,end) infinite; }
 .livid-react [data-anim="flash"] { animation: livid-flash 1s ease-out infinite; }
 .livid-react [data-anim="dim"] { opacity: .42; }
-.livid-react-glyph { width: .55rem; height: .55rem; border: 2px solid currentColor; border-radius: 50%; }
+.livid-react-glyph { box-sizing: border-box; flex: 0 0 auto; width: 9px; height: 9px; border: 2px solid currentColor; border-radius: 50%; }
 .livid-react-glyph[data-glyph="none"] { display: none; }
 .livid-react-glyph[data-glyph="dot"] { background: currentColor; }
-.livid-react-glyph[data-glyph="bar"] { width: .75rem; height: .2rem; border: 0; border-radius: 0; background: currentColor; }
-.livid-react-glyph[data-glyph="square"] { border-radius: 0; }
-.livid-react-descend { margin-left: auto; }
+.livid-react-glyph[data-glyph="bar"] { width: 3px; height: 12px; border: 0; border-radius: 2px; background: currentColor; }
+.livid-react-glyph[data-glyph="square"] { width: 7px; height: 7px; border: 0; border-radius: 0; background: currentColor; }
+.livid-react-glyph[data-glyph="chevron"] { width: 8px; height: 8px; border-width: 2px 2px 0 0; border-radius: 0; transform: rotate(45deg); background: transparent; }
+.livid-react-label { white-space: nowrap; }
+.livid-react-label-beside { position: absolute; left: calc(100% + 18px); top: 50%; transform: translateY(-50%); }
+.livid-react-leader { position: absolute; left: 100%; top: 50%; width: 10px; border-top: 2px solid currentColor; }
+.livid-react-descend { position: absolute; right: 8px; bottom: 4px; }
 @keyframes livid-pulse { 50% { filter: brightness(1.35); } }
 @keyframes livid-stall { 50% { opacity: .55; } }
 @keyframes livid-flash { 50% { stroke-width: 4; filter: drop-shadow(0 0 4px currentColor); } }

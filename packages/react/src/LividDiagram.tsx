@@ -12,13 +12,13 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react';
-import type { AnyRegistry, LaidOutDiagram, StateFrame } from '@rankonelabs/livid-core';
+import type { AnyRegistry, EdgeId, LaidOutDiagram, NodeId, StateFrame } from '@rankonelabs/livid-core';
 
 import { toReactDiagram, type ReactEdgeData, type ReactNodeData } from './model.js';
 
 export type DiagramSelection =
-  | { readonly kind: 'node'; readonly id: string; readonly detail: unknown }
-  | { readonly kind: 'edge'; readonly id: string; readonly detail: unknown };
+  | { readonly kind: 'node'; readonly id: NodeId; readonly detail: unknown }
+  | { readonly kind: 'edge'; readonly id: EdgeId; readonly detail: unknown };
 
 export interface LividDiagramProps<R extends AnyRegistry> {
   readonly diagram: LaidOutDiagram<R>;
@@ -28,13 +28,14 @@ export interface LividDiagramProps<R extends AnyRegistry> {
   readonly fitView?: boolean;
   readonly interactive?: boolean;
   readonly onSelect?: (selection: DiagramSelection) => void;
-  readonly onDescend?: (nodeId: string, child: LaidOutDiagram<R>) => void;
+  readonly onDescend?: (nodeId: NodeId, child: LaidOutDiagram<R>) => void;
 }
 
 type LividNode = Node<ReactNodeData, 'lividNode'>;
 type LividEdge = Edge<ReactEdgeData, 'lividEdge'>;
 
 function DiagramNode({ data }: NodeProps<LividNode>) {
+  const labelIsBeside = data.shape === 'circle' || data.shape === 'diamond';
   return <div
     className="livid-react-node"
     data-shape={data.shape}
@@ -43,8 +44,11 @@ function DiagramNode({ data }: NodeProps<LividNode>) {
     title={`${data.label} — ${data.typeLabel}`}
   >
     <Handle type="target" position={Position.Left} />
-    <span className="livid-react-glyph" data-glyph={data.glyph} aria-hidden="true" />
-    <span>{data.label}</span>
+    <span className="livid-react-shape">
+      <span className="livid-react-glyph" data-glyph={data.glyph} aria-hidden="true" />
+      {!labelIsBeside && <span className="livid-react-label">{data.label}</span>}
+    </span>
+    {labelIsBeside && <><span className="livid-react-leader" aria-hidden="true" /><span className="livid-react-label livid-react-label-beside">{data.label}</span></>}
     {data.hasChildren && <span className="livid-react-descend" aria-hidden="true">⌄</span>}
     <Handle type="source" position={Position.Right} />
   </div>;
@@ -105,11 +109,13 @@ function Canvas<R extends AnyRegistry>({
       panOnDrag={interactive}
       zoomOnScroll={interactive}
       fitView={fitView}
-      onNodeClick={(_, node) => onSelect?.({ kind: 'node', id: node.id, detail: node.data.detail })}
-      onEdgeClick={(_, edge) => onSelect?.({ kind: 'edge', id: edge.id, detail: edge.data?.detail })}
+      onNodeClick={(_, node) => onSelect?.({ kind: 'node', id: node.data.entityId, detail: node.data.detail })}
+      onEdgeClick={(_, edge) => {
+        if (edge.data !== undefined) onSelect?.({ kind: 'edge', id: edge.data.entityId, detail: edge.data.detail });
+      }}
       onNodeDoubleClick={(_, node) => {
         const child = diagram.nodes.find((placed) => placed.node.id === node.id)?.children;
-        if (child !== null && child !== undefined) onDescend?.(node.id, child);
+        if (child !== null && child !== undefined) onDescend?.(node.data.entityId, child);
       }}
     >
       <Background gap={24} size={1} />

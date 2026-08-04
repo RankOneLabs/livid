@@ -1,6 +1,7 @@
 import type {
   AnyRegistry,
   EdgeId,
+  Glyph,
   LaidOutDiagram,
   NodeId,
   NodeShape,
@@ -16,7 +17,7 @@ export interface ReactNodeData extends Readonly<Record<string, unknown>> {
   readonly typeLabel: string;
   readonly detail: unknown;
   readonly shape: NodeShape;
-  readonly glyph: string;
+  readonly glyph: Glyph;
   readonly tint: StateTint | null;
   readonly animation: StateAnimation | null;
   readonly hasChildren: boolean;
@@ -32,7 +33,7 @@ export interface ReactEdgeData extends Readonly<Record<string, unknown>> {
 }
 
 export interface ReactNodeModel {
-  readonly id: string;
+  readonly id: NodeId;
   readonly position: Point;
   readonly width: number;
   readonly height: number;
@@ -40,9 +41,9 @@ export interface ReactNodeModel {
 }
 
 export interface ReactEdgeModel {
-  readonly id: string;
-  readonly source: string;
-  readonly target: string;
+  readonly id: EdgeId;
+  readonly source: NodeId;
+  readonly target: NodeId;
   readonly data: ReactEdgeData;
 }
 
