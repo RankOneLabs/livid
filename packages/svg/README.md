@@ -105,8 +105,8 @@ Every node and edge carries hooks for the page's own stylesheet:
 
 | Element | Class | Attributes |
 | --- | --- | --- |
-| node `<g>` | `livid-node` | `data-type`, `data-node`, `data-line` |
-| edge `<polyline>` | `livid-edge` | `data-type`, `data-line`, `data-kind` (`track` \| `branch`) |
+| node `<g>` | `livid-node` | `data-type`, `data-node`, `data-line`, `data-state`, `data-tint`, `data-anim` |
+| edge `<polyline>` | `livid-edge` | `data-type`, `data-line`, `data-kind` (`track` \| `branch`), `data-state`, `data-tint`, `data-anim` |
 
 Motion is not a renderer option, and that is on purpose. An inline SVG is stylable
 by the document around it, so hover states, transitions, and flow animation are
@@ -114,6 +114,16 @@ already the consumer's to write — a renderer shipping animation config would b
 deciding something the page is better placed to decide. What the renderer owes is
 *identity*: which line, which type, track or branch. That is the one thing CSS
 cannot recover from geometry.
+
+Pass a validated frame as the second argument to render a state snapshot:
+
+```ts
+renderSvg(laid.value, frame, { levels: 'root' })
+```
+
+The renderer resolves the declared tint through `theme.palette.states` and
+emits the closed animation token as `data-anim`; the surrounding stylesheet can
+then implement transitions while respecting `prefers-reduced-motion`.
 
 ```css
 /* Artifact flowing along the critical path, in the consumer's stylesheet. */

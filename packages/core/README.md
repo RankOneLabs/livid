@@ -27,11 +27,18 @@ npm install @rankonelabs/livid-core
 Register a vocabulary, validate a spec, lay it out:
 
 ```ts
-import { defineRegistry, validateDiagram, layout } from '@rankonelabs/livid-core'
+import { defineRegistry, validateDiagram, validateState, layout } from '@rankonelabs/livid-core'
 
 const registry = defineRegistry({
   nodeTypes: {
-    transform: { label: 'Transform', detail: TransformDetail, shape: 'rounded',  isRouter: false },
+    transform: {
+      label: 'Transform', detail: TransformDetail, shape: 'rounded', isRouter: false,
+      states: {
+        ready:   { tint: 'base' },
+        active:  { tint: 'accent', anim: 'pulse' },
+        blocked: { tint: 'danger', anim: 'stall' },
+      },
+    },
     gate:      { label: 'Gate',      detail: GateDetail,      shape: 'diamond',  isRouter: true  },
   },
   edgeTypes: {
@@ -43,9 +50,17 @@ const valid = validateDiagram(registry, spec)
 if (!valid.ok) return valid.error          // every problem, in one pass
 
 const laid = await layout(valid.value)     // async: elkjs has no sync API
+
+const state = validateState(registry, valid.value, {
+  nodes: { transformer: 'active' },
+  edges: {},
+})
 ```
 
 `layout()` does one level; `layoutDeep()` walks the whole drill-down tree.
+`StateFrame` is validated and branded separately from layout, so live state can
+change without recomputing serializable geometry. State names belong to each
+registered type; their visuals use the closed tint and animation vocabularies.
 
 ## Vocabulary is registered, not hardcoded
 

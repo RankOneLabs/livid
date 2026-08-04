@@ -19,7 +19,15 @@
  * geometry alone.
  */
 
-import type { AnyRegistry, LaidOutDiagram, LaidOutEdge, LaidOutNode, Point } from '@rankonelabs/livid-core';
+import type {
+  AnyRegistry,
+  LaidOutDiagram,
+  LaidOutEdge,
+  LaidOutNode,
+  Point,
+  StateFrame,
+  StateVisual,
+} from '@rankonelabs/livid-core';
 
 import { type Box, EMPTY_BOX, boxAround, boxOf, placeLabel, unionOf, withExtent } from './geometry.js';
 import { type Arrowhead, arrowDefsMarkup, arrowEndAttr, arrowheadOf, arrowheadReach } from './markers.js';
@@ -56,21 +64,38 @@ export interface SvgFigure {
 }
 
 /** The markup alone, for callers with nothing to size. */
-export function renderSvg<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, options: SvgOptions = {}): string {
-  return renderFigure(diagram, options).svg;
+export function renderSvg<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, frame: StateFrame, options?: SvgOptions): string;
+export function renderSvg<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, options?: SvgOptions): string;
+export function renderSvg<R extends AnyRegistry>(
+  diagram: LaidOutDiagram<R>,
+  frameOrOptions: StateFrame | SvgOptions = {},
+  options: SvgOptions = {},
+): string {
+  return (isStateFrame(frameOrOptions)
+    ? renderFigure(diagram, frameOrOptions, options)
+    : renderFigure(diagram, frameOrOptions)).svg;
 }
 
+export function renderFigure<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, frame: StateFrame, options?: SvgOptions): SvgFigure;
+export function renderFigure<R extends AnyRegistry>(diagram: LaidOutDiagram<R>, options?: SvgOptions): SvgFigure;
 export function renderFigure<R extends AnyRegistry>(
   diagram: LaidOutDiagram<R>,
-  options: SvgOptions = {},
+  frameOrOptions: StateFrame | SvgOptions = {},
+  suppliedOptions: SvgOptions = {},
 ): SvgFigure {
+  const frame: StateFrame = isStateFrame(frameOrOptions) ? frameOrOptions : EMPTY_STATE_FRAME;
+  const options: SvgOptions = isStateFrame(frameOrOptions)
+    ? suppliedOptions
+    : isObject(frameOrOptions)
+      ? frameOrOptions
+      : {};
   const theme = resolveTheme(options.theme);
   const { padding, levelGap } = theme.metrics;
 
   const levels = levelsOf(diagram, options.caption ?? null, options.levels !== 'root');
   const title = options.title ?? null;
   const arrowhead = arrowheadOf(theme.metrics, () => fingerprintOf(levels, theme, title));
-  const rendered = levels.map((level) => renderLevel(level, theme, arrowhead));
+  const rendered = levels.map((level) => renderLevel(level, frame, theme, arrowhead));
 
   const captionHeight = theme.typography.captionSize + theme.metrics.labelGap * 2;
   const width =
@@ -136,6 +161,16 @@ export function renderFigure<R extends AnyRegistry>(
   return { svg, width: Number(round(width)), height: Number(round(height)) };
 }
 
+const EMPTY_STATE_FRAME: StateFrame = { __brand: 'StateFrame', nodes: {}, edges: {} };
+
+function isStateFrame(value: unknown): value is StateFrame {
+  return isObject(value) && value.__brand === 'StateFrame';
+}
+
+function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null;
+}
+
 /* ------------------------------------------------------------------ *
  * Levels
  * ------------------------------------------------------------------ */
@@ -180,6 +215,7 @@ function heightOf(level: RenderedLevel, captionHeight: number): number {
 
 function renderLevel<R extends AnyRegistry>(
   level: Level<R>,
+  frame: StateFrame,
   theme: SvgTheme,
   arrowhead: Arrowhead | null,
 ): RenderedLevel {
@@ -191,10 +227,17 @@ function renderLevel<R extends AnyRegistry>(
     (line === null ? undefined : colours.get(line)) ?? theme.palette.caption;
 
   const lineOfNode = new Map(diagram.nodes.map((node) => [node.node.id as string, node.node.line]));
-  const context: EdgeContext = { lineOfNode, colourOf, theme, arrowhead };
+  const edgeVisuals = new Map(
+    diagram.edges.flatMap((edge) => {
+      const state = frame.edges[edge.edge.id];
+      const visual = state === undefined ? undefined : diagram.registry.edgeTypes[edge.edge.type]?.states?.[state];
+      return visual === undefined ? [] : [[edge.edge.id as string, visual] as const];
+    }),
+  );
+  const context: EdgeContext = { lineOfNode, colourOf, frame, edgeVisuals, theme, arrowhead };
 
   const edges = diagram.edges.map((edge) => renderEdge(edge, context));
-  const nodes = diagram.nodes.map((node) => renderNode(node, diagram, colourOf, theme));
+  const nodes = diagram.nodes.map((node) => renderNode(node, diagram, frame, colourOf, theme));
 
   // Edges first so tracks pass under stations rather than over them.
   return {
@@ -217,6 +260,8 @@ interface Part {
 interface EdgeContext {
   readonly lineOfNode: ReadonlyMap<string, string | null>;
   readonly colourOf: (line: string | null) => string;
+  readonly frame: StateFrame;
+  readonly edgeVisuals: ReadonlyMap<string, StateVisual>;
   readonly theme: SvgTheme;
   readonly arrowhead: Arrowhead | null;
 }
@@ -227,11 +272,13 @@ interface EdgeContext {
  * belongs to the new one, which is what makes an interchange read as a change.
  */
 function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeContext): Part {
-  const { lineOfNode, colourOf, theme, arrowhead } = context;
+  const { lineOfNode, colourOf, frame, edgeVisuals, theme, arrowhead } = context;
   const sourceLine = lineOfNode.get(edge.edge.source) ?? null;
   const targetLine = lineOfNode.get(edge.edge.target) ?? null;
   const branching = sourceLine !== targetLine;
   const weight = branching ? theme.metrics.branchWeight : theme.metrics.lineWeight;
+  const state = frame.edges[edge.edge.id];
+  const visual = edgeVisuals.get(edge.edge.id);
 
   // Nothing to draw and nothing to reserve, so the identity box keeps it out
   // of the union rather than pinning it to the origin.
@@ -244,7 +291,8 @@ function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeCo
       `<polyline class="livid-edge" data-type="${escapeAttr(edge.edge.type)}" ` +
       `data-line="${targetLine === null ? '' : escapeAttr(targetLine)}" ` +
       `data-kind="${branching ? 'branch' : 'track'}" ` +
-      `points="${points}" fill="none" stroke="${colourOf(targetLine)}" stroke-width="${weight}" ` +
+      stateAttributes(state, visual) +
+      `points="${points}" fill="none" stroke="${visual === undefined ? colourOf(targetLine) : theme.palette.states[visual.tint]}" stroke-width="${weight}" ` +
       `stroke-linejoin="round" stroke-linecap="round"` +
       `${arrowhead === null ? '' : ` ${arrowEndAttr(arrowhead)}`}/>`,
     box: unionOf([boxAround(edge.route, weight / 2), headBox(edge.route, weight, arrowhead)]),
@@ -269,6 +317,7 @@ function headBox(route: readonly Point[], strokeWidth: number, arrowhead: Arrowh
 function renderNode<R extends AnyRegistry>(
   placed: LaidOutNode<R>,
   diagram: LaidOutDiagram<R>,
+  frame: StateFrame,
   colourOf: (line: string | null) => string,
   theme: SvgTheme,
 ): Part {
@@ -276,6 +325,8 @@ function renderNode<R extends AnyRegistry>(
   const shape = typeDef?.shape ?? 'rect';
   const glyph = typeDef?.glyph ?? 'none';
   const colour = colourOf(placed.node.line);
+  const state = frame.nodes[placed.node.id];
+  const visual = state === undefined ? undefined : typeDef?.states?.[state];
   const box = boxOf(placed.position, placed.size);
 
   const label = placeLabel(
@@ -300,10 +351,11 @@ function renderNode<R extends AnyRegistry>(
     markup: [
       `<g class="livid-node" data-type="${escapeAttr(placed.node.type)}" ` +
         `data-node="${escapeAttr(placed.node.id)}" ` +
-        `data-line="${placed.node.line === null ? '' : escapeAttr(placed.node.line)}">`,
+        `data-line="${placed.node.line === null ? '' : escapeAttr(placed.node.line)}" ` +
+        stateAttributes(state, visual) + '>',
       `<title>${escapeText(description)}</title>`,
       shapeMarkup(shape, box, {
-        fill: theme.palette.nodeFill,
+        fill: visual === undefined ? theme.palette.nodeFill : theme.palette.states[visual.tint],
         stroke: colour,
         strokeWidth: theme.metrics.nodeStroke,
       }),
@@ -318,6 +370,12 @@ function renderNode<R extends AnyRegistry>(
       .join('\n'),
     box: unionOf([box, label.box]),
   };
+}
+
+function stateAttributes(state: string | undefined, visual: StateVisual | undefined): string {
+  if (state === undefined || visual === undefined) return '';
+  const animation = visual.anim === undefined ? '' : ` data-anim="${escapeAttr(visual.anim)}"`;
+  return `data-state="${escapeAttr(state)}" data-tint="${escapeAttr(visual.tint)}"${animation} `;
 }
 
 /* ------------------------------------------------------------------ *

@@ -6,6 +6,8 @@
  * SVG in a post and the React canvas in an app the same map.
  */
 
+import type { StateTint } from '@rankonelabs/livid-core';
+
 /** Where a label sits when its shape cannot hold text. */
 export type LabelSide = 'below' | 'right';
 
@@ -34,6 +36,8 @@ export interface Palette {
   readonly label: string;
   readonly caption: string;
   readonly divider: string;
+  /** Closed state tint tokens from core, resolved to renderer colours. */
+  readonly states: Readonly<Record<StateTint, string>>;
 }
 
 export interface Typography {
@@ -102,6 +106,13 @@ export const DEFAULT_PALETTE: Palette = {
   label: '#16181D',
   caption: '#6B7280',
   divider: '#D8DCE3',
+  states: {
+    muted: '#9CA3AF',
+    base: '#FFFFFF',
+    accent: '#2563EB',
+    danger: '#DC2626',
+    ghost: '#E5E7EB',
+  },
 };
 
 export const DEFAULT_TYPOGRAPHY: Typography = {
@@ -135,7 +146,12 @@ export const DEFAULT_THEME: SvgTheme = {
 
 export function resolveTheme(overrides: SvgThemeOverrides = {}): SvgTheme {
   return {
-    palette: { ...DEFAULT_PALETTE, ...overrides.palette, lines: { ...DEFAULT_PALETTE.lines, ...overrides.palette?.lines } },
+    palette: {
+      ...DEFAULT_PALETTE,
+      ...overrides.palette,
+      lines: { ...DEFAULT_PALETTE.lines, ...overrides.palette?.lines },
+      states: { ...DEFAULT_PALETTE.states, ...overrides.palette?.states },
+    },
     typography: { ...DEFAULT_TYPOGRAPHY, ...overrides.typography },
     metrics: { ...DEFAULT_METRICS, ...overrides.metrics },
   };
