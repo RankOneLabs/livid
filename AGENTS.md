@@ -6,7 +6,7 @@ Living diagrams: system maps derived from schema, where every node and edge is
 real and drills down into the payload flowing through it. Dense systems made
 legible by progressive disclosure rather than by leaving things out.
 
-A monorepo of three packages. Only `react` is still to come.
+A monorepo of three packages with static and interactive renderers.
 
 | Package | Role |
 |---|---|

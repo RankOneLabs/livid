@@ -15,7 +15,7 @@ legible by progressive disclosure rather than by leaving things out.
 | `@rankonelabs/livid-svg` | `LaidOutDiagram` → SVG string. Build-time, zero client JS. For posts and portability. |
 | `@rankonelabs/livid-react` | `LaidOutDiagram` → XY Flow canvas. For web apps and live-wired feeds. |
 
-Only `react` is still to come.
+Both static SVG and interactive React renderers consume the same laid-out diagram contract.
 
 ## The pipeline
 
