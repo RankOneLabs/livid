@@ -84,7 +84,11 @@ export function renderFigure<R extends AnyRegistry>(
   suppliedOptions: SvgOptions = {},
 ): SvgFigure {
   const frame: StateFrame = isStateFrame(frameOrOptions) ? frameOrOptions : EMPTY_STATE_FRAME;
-  const options: SvgOptions = isStateFrame(frameOrOptions) ? suppliedOptions : frameOrOptions;
+  const options: SvgOptions = isStateFrame(frameOrOptions)
+    ? suppliedOptions
+    : isObject(frameOrOptions)
+      ? frameOrOptions
+      : {};
   const theme = resolveTheme(options.theme);
   const { padding, levelGap } = theme.metrics;
 
@@ -159,8 +163,12 @@ export function renderFigure<R extends AnyRegistry>(
 
 const EMPTY_STATE_FRAME: StateFrame = { __brand: 'StateFrame', nodes: {}, edges: {} };
 
-function isStateFrame(value: StateFrame | SvgOptions): value is StateFrame {
-  return '__brand' in value && value.__brand === 'StateFrame';
+function isStateFrame(value: unknown): value is StateFrame {
+  return isObject(value) && value.__brand === 'StateFrame';
+}
+
+function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -366,7 +374,8 @@ function renderNode<R extends AnyRegistry>(
 
 function stateAttributes(state: string | undefined, visual: StateVisual | undefined): string {
   if (state === undefined || visual === undefined) return '';
-  return `data-state="${escapeAttr(state)}" data-tint="${visual.tint}" data-anim="${visual.anim ?? ''}" `;
+  const animation = visual.anim === undefined ? '' : ` data-anim="${escapeAttr(visual.anim)}"`;
+  return `data-state="${escapeAttr(state)}" data-tint="${escapeAttr(visual.tint)}"${animation} `;
 }
 
 /* ------------------------------------------------------------------ *

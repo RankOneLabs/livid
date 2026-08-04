@@ -27,7 +27,11 @@ export const REGISTRY = defineRegistry({
     terminal: { label: 'Terminal', detail: anything, shape: 'stadium', isRouter: false },
     work: {
       label: 'Work', detail: anything, shape: 'rect', isRouter: false,
-      states: { active: { tint: 'accent', anim: 'pulse' }, blocked: { tint: 'danger', anim: 'stall' } },
+      states: {
+        ready: { tint: 'base' },
+        active: { tint: 'accent', anim: 'pulse' },
+        blocked: { tint: 'danger', anim: 'stall' },
+      },
     },
     junction: { label: 'Junction', detail: anything, shape: 'circle', glyph: 'dot', isRouter: true },
     decision: { label: 'Decision', detail: anything, shape: 'diamond', glyph: 'bar', isRouter: true },

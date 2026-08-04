@@ -125,6 +125,43 @@ describe('styling hooks', () => {
     expect(svg).toContain(`stroke="${DEFAULT_PALETTE.states.accent}"`);
   });
 
+  it('omits the animation hook when a state declares no animation', () => {
+    const frame = stateFrame({ process: 'ready' });
+    const svg = renderSvg(diagram, frame, { levels: 'root' });
+    const process = /<g class="livid-node"[^>]*data-node="process"[^>]*>/.exec(svg)?.[0];
+
+    expect(process).toContain('data-state="ready"');
+    expect(process).not.toContain('data-anim');
+  });
+
+  it('escapes state visual tokens supplied by JavaScript registries', () => {
+    const work = diagram.registry.nodeTypes.work;
+    const unsafe = {
+      ...diagram,
+      registry: {
+        ...diagram.registry,
+        nodeTypes: {
+          ...diagram.registry.nodeTypes,
+          work: {
+            ...work,
+            states: {
+              ...work.states,
+              active: { tint: 'accent"' as 'accent', anim: 'pulse"' as 'pulse' },
+            },
+          },
+        },
+      },
+    };
+    const svg = renderSvg(unsafe, stateFrame({ process: 'active' }), { levels: 'root' });
+
+    expect(svg).toContain('data-tint="accent&quot;"');
+    expect(svg).toContain('data-anim="pulse&quot;"');
+  });
+
+  it('does not throw when a JavaScript caller passes null for the optional argument', () => {
+    expect(() => renderSvg(diagram, null as unknown as SvgOptions)).not.toThrow();
+  });
+
   it('tells an edge on its own line apart from one that branches', () => {
     // The distinction CSS cannot recover from geometry, and the reason these
     // hooks exist rather than an animation option on the renderer.

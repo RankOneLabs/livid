@@ -118,7 +118,7 @@ cannot recover from geometry.
 Pass a validated frame as the second argument to render a state snapshot:
 
 ```ts
-renderSvg(diagram, frame, { levels: 'root' })
+renderSvg(laid.value, frame, { levels: 'root' })
 ```
 
 The renderer resolves the declared tint through `theme.palette.states` and
