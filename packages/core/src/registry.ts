@@ -10,12 +10,25 @@ export type NodeShape = 'rect' | 'rounded' | 'stadium' | 'circle' | 'hexagon' | 
 /** Station mark drawn on the node. Closed for the same reason as NodeShape. */
 export type Glyph = 'none' | 'dot' | 'ring' | 'bar' | 'chevron' | 'square';
 
+/** Closed visual vocabulary shared by every renderer. */
+export type StateTint = 'muted' | 'base' | 'accent' | 'danger' | 'ghost';
+export type StateAnimation = 'pulse' | 'stall' | 'flash' | 'dim';
+
+export interface StateVisual {
+  readonly tint: StateTint;
+  readonly anim?: StateAnimation;
+}
+
+export type StateDeclarations = Readonly<Record<string, StateVisual>>;
+
 export interface NodeTypeDef<S extends StandardSchemaV1 = StandardSchemaV1> {
   readonly label: string;
   /** Schema for this type's detail bag. Core writes the handler from it. */
   readonly detail: S;
   readonly shape: NodeShape;
   readonly glyph?: Glyph;
+  /** Named runtime states and their renderer-independent visual treatment. */
+  readonly states?: StateDeclarations;
   /**
    * Whether this type routes flow: branching out, condensing in, terminating,
    * and changing line. Everything meta about control flow happens at a router;
@@ -36,6 +49,8 @@ export interface NodeTypeDef<S extends StandardSchemaV1 = StandardSchemaV1> {
 export interface EdgeTypeDef<S extends StandardSchemaV1 = StandardSchemaV1> {
   readonly label: string;
   readonly detail: S;
+  /** Named runtime states and their renderer-independent visual treatment. */
+  readonly states?: StateDeclarations;
 }
 
 export interface Registry<

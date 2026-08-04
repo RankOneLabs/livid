@@ -2,9 +2,11 @@ import {
   type DiagramSpec,
   type LaidOutDiagram,
   type StandardSchemaV1,
+  type StateFrame,
   defineRegistry,
   layoutDeep,
   validateDiagram,
+  validateState,
 } from '@rankonelabs/livid-core';
 
 /** Accepts anything. Detail validation is core's concern, not the renderer's. */
@@ -23,13 +25,16 @@ export const anything: StandardSchemaV1<unknown, unknown> = {
 export const REGISTRY = defineRegistry({
   nodeTypes: {
     terminal: { label: 'Terminal', detail: anything, shape: 'stadium', isRouter: false },
-    work: { label: 'Work', detail: anything, shape: 'rect', isRouter: false },
+    work: {
+      label: 'Work', detail: anything, shape: 'rect', isRouter: false,
+      states: { active: { tint: 'accent', anim: 'pulse' }, blocked: { tint: 'danger', anim: 'stall' } },
+    },
     junction: { label: 'Junction', detail: anything, shape: 'circle', glyph: 'dot', isRouter: true },
     decision: { label: 'Decision', detail: anything, shape: 'diamond', glyph: 'bar', isRouter: true },
     observer: { label: 'Observer', detail: anything, shape: 'hexagon', isRouter: false },
   },
   edgeTypes: {
-    flow: { label: 'Flow', detail: anything },
+    flow: { label: 'Flow', detail: anything, states: { active: { tint: 'accent', anim: 'flash' } } },
   },
 });
 
@@ -73,6 +78,17 @@ export async function laidOut(spec: DiagramSpec = SPEC): Promise<LaidOutDiagram<
   const laid = await layoutDeep(valid.value);
   if (!laid.ok) throw new Error(`fixture did not lay out: ${JSON.stringify(laid.error)}`);
   return laid.value;
+}
+
+export function stateFrame(
+  nodes: Readonly<Record<string, string>> = {},
+  edges: Readonly<Record<string, string>> = {},
+): StateFrame {
+  const valid = validateDiagram(REGISTRY, SPEC);
+  if (!valid.ok) throw new Error('state fixture diagram is not valid');
+  const frame = validateState(REGISTRY, valid.value, { nodes, edges });
+  if (!frame.ok) throw new Error(`state fixture is not valid: ${JSON.stringify(frame.error)}`);
+  return frame.value;
 }
 
 /** Where one drawn edge ends, in the figure's own coordinates. */

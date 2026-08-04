@@ -1,6 +1,6 @@
 {
   "name": "@rankonelabs/livid-svg",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "LaidOutDiagram to SVG string. Build-time, zero client JS.",
   "license": "MIT",
@@ -40,9 +40,9 @@
     "prepublishOnly": "tsc -b --force"
   },
   "peerDependencies": {
-    "@rankonelabs/livid-core": "^0.1.0"
+    "@rankonelabs/livid-core": "^0.2.0"
   },
   "devDependencies": {
-    "@rankonelabs/livid-core": "^0.1.0"
+    "@rankonelabs/livid-core": "^0.2.0"
   }
 }

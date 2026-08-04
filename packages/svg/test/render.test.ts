@@ -14,7 +14,7 @@ import {
   renderFigure,
   renderSvg,
 } from '../src/index.js';
-import { type TestRegistry, attributeValues, drawnEdgeEnds, laidOut } from './helpers.js';
+import { type TestRegistry, attributeValues, drawnEdgeEnds, laidOut, stateFrame } from './helpers.js';
 
 let diagram: LaidOutDiagram<TestRegistry>;
 
@@ -115,6 +115,16 @@ describe('content', () => {
 });
 
 describe('styling hooks', () => {
+  it('renders a validated state snapshot through the closed visual vocabulary', () => {
+    const frame = stateFrame({ process: 'blocked' }, { e2: 'active' });
+    const svg = renderSvg(diagram, frame, { levels: 'root' });
+
+    expect(svg).toContain('data-node="process" data-line="main" data-state="blocked" data-tint="danger" data-anim="stall"');
+    expect(svg).toContain('data-state="active" data-tint="accent" data-anim="flash"');
+    expect(svg).toContain(`fill="${DEFAULT_PALETTE.states.danger}"`);
+    expect(svg).toContain(`stroke="${DEFAULT_PALETTE.states.accent}"`);
+  });
+
   it('tells an edge on its own line apart from one that branches', () => {
     // The distinction CSS cannot recover from geometry, and the reason these
     // hooks exist rather than an animation option on the renderer.

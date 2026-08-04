@@ -38,6 +38,10 @@ export { type DetailIssue, type DiagramError, formatError } from './errors.js';
 export {
   type NodeShape,
   type Glyph,
+  type StateTint,
+  type StateAnimation,
+  type StateVisual,
+  type StateDeclarations,
   type NodeTypeDef,
   type EdgeTypeDef,
   type Registry,
@@ -50,6 +54,8 @@ export {
   nodeTypeKeys,
   edgeTypeKeys,
 } from './registry.js';
+
+export { type StateFrame, type StateError, validateState } from './state.js';
 
 export { type StandardSchemaV1 } from './standard-schema.js';
 
