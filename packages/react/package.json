@@ -1,0 +1,43 @@
+{
+  "name": "@rankonelabs/livid-react",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Interactive XY Flow renderer for livid diagrams and live state frames.",
+  "license": "MIT",
+  "keywords": ["diagram", "react", "xyflow", "architecture"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RankOneLabs/livid.git",
+    "directory": "packages/react"
+  },
+  "homepage": "https://github.com/RankOneLabs/livid#readme",
+  "bugs": "https://github.com/RankOneLabs/livid/issues",
+  "engines": { "node": ">=20.19.0" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./styles.css": "./dist/styles.css"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsc -b && cp src/styles.css dist/styles.css",
+    "check": "tsc -b",
+    "prepublishOnly": "tsc -b --force && cp src/styles.css dist/styles.css"
+  },
+  "peerDependencies": {
+    "@rankonelabs/livid-core": "^0.2.0",
+    "@xyflow/react": "^12.9.0",
+    "react": "^18.3.0 || ^19.0.0",
+    "react-dom": "^18.3.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@rankonelabs/livid-core": "^0.2.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@xyflow/react": "^12.9.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}
