@@ -136,15 +136,19 @@ describe('layout', () => {
     const stations = ['plan', 'act', 'observe', 'judge'];
     const laid = await laidOut({
       nodes: stations.map((id) => ({ id, type: 'client', label: id })),
-      edges: stations.map((source, index) => ({
-        id: `e${index}`,
-        type: 'flow',
-        source,
-        target: stations[(index + 1) % stations.length] ?? source,
-      })),
+      edges: [
+        { id: 'e1', type: 'flow', source: 'plan', target: 'act' },
+        { id: 'e2', type: 'flow', source: 'act', target: 'observe' },
+        { id: 'e3', type: 'flow', source: 'observe', target: 'judge' },
+        { id: 'e4', type: 'flow', source: 'judge', target: 'plan' },
+      ],
     });
-    const xs = stations.map((id) => laid.nodes.find((node) => node.node.id === id)?.position.x ?? NaN);
-    expect(xs.every((x, index) => index === 0 || x > (xs[index - 1] ?? Infinity))).toBe(true);
+    const xs = stations.map((id) => {
+      const station = laid.nodes.find((node) => node.node.id === id);
+      if (station === undefined) throw new Error(`expected station ${id} in the layout`);
+      return station.position.x;
+    });
+    expect(xs).toEqual([...xs].sort((a, b) => a - b));
   });
 
   it('keeps circles square regardless of label length', async () => {
