@@ -44,6 +44,11 @@ renderer needs deep — a static file has to contain every level it can reveal.
 The React renderer can go shallow and descend on demand, which is what keeps
 large graphs viable.
 
+Declaration order is reading order. Nodes rank in the order the spec lists
+them, so a loop reads left to right from its first station and the edge back to
+it is the one drawn wrapping around — rather than whichever edge a heuristic
+happened to reverse.
+
 ## Where user control stops
 
 - **What data** → config, validated, brand-gated.

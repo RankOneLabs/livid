@@ -129,6 +129,24 @@ describe('layout', () => {
     expect((long?.size.width ?? 0) > (short?.size.width ?? 0)).toBe(true);
   });
 
+  it('lays a cycle out in declaration order, so the wrap-back is the edge into the first node', async () => {
+    // Greedy cycle breaking ranks a four-node cycle starting at its third node.
+    // Declaration order is reading order: the author lists stations in the order
+    // they want them read, and the edge back to the first is the one that wraps.
+    const stations = ['plan', 'act', 'observe', 'judge'];
+    const laid = await laidOut({
+      nodes: stations.map((id) => ({ id, type: 'client', label: id })),
+      edges: stations.map((source, index) => ({
+        id: `e${index}`,
+        type: 'flow',
+        source,
+        target: stations[(index + 1) % stations.length] ?? source,
+      })),
+    });
+    const xs = stations.map((id) => laid.nodes.find((node) => node.node.id === id)?.position.x ?? NaN);
+    expect(xs.every((x, index) => index === 0 || x > (xs[index - 1] ?? Infinity))).toBe(true);
+  });
+
   it('keeps circles square regardless of label length', async () => {
     const laid = await laidOut({
       nodes: [

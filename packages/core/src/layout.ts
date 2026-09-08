@@ -162,6 +162,15 @@ function elkOptions(options: LayoutOptions): ElkOptions {
     'elk.spacing.nodeNode': String(spacing.nodeNode),
     'elk.spacing.edgeNode': String(spacing.edgeNode),
     'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+    // A layered layout has to reverse some edge of every cycle before it can
+    // rank the nodes. ELK's default picks those edges greedily, so a loop lands
+    // in whatever order the heuristic happened to produce — a five-stage cycle
+    // has been seen starting at its second stage, with the return edge drawn
+    // forwards and a forward edge drawn backwards. Model order makes the choice
+    // the author's: nodes rank in declaration order, and an edge pointing at an
+    // earlier-declared node is the one that wraps back. Declaration order is
+    // reading order, which is what a map's author expects anyway.
+    'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
   };
 }
 
