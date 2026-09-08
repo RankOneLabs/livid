@@ -58,6 +58,10 @@ const state = validateState(registry, valid.value, {
 ```
 
 `layout()` does one level; `layoutDeep()` walks the whole drill-down tree.
+In a cycle, declaration order is reading order: edges that point at an
+earlier-listed node are the ones that wrap back, so a simple loop reads from its
+first-listed node with one return arc. Acyclic specs are ranked by their edges
+alone.
 `StateFrame` is validated and branded separately from layout, so live state can
 change without recomputing serializable geometry. State names belong to each
 registered type; their visuals use the closed tint and animation vocabularies.

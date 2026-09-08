@@ -44,6 +44,16 @@ renderer needs deep — a static file has to contain every level it can reveal.
 The React renderer can go shallow and descend on demand, which is what keeps
 large graphs viable.
 
+In a loop, declaration order is reading order. A layered layout has to pick
+some edge of every cycle to draw as a return, and livid picks by the order the
+spec lists the nodes: edges that point at an earlier-listed node are the ones
+drawn wrapping around, and every other edge runs forwards — rather than
+whichever edges a heuristic happened to reverse. A simple cycle therefore reads
+left to right from its first-listed station with one return arc; a chord that
+skips ahead runs forwards like any other edge, and only a chord back to an
+earlier station becomes a second return arc. Acyclic specs are ranked by their
+edges alone, as before.
+
 ## Where user control stops
 
 - **What data** → config, validated, brand-gated.

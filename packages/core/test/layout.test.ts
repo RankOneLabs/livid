@@ -129,6 +129,29 @@ describe('layout', () => {
     expect((long?.size.width ?? 0) > (short?.size.width ?? 0)).toBe(true);
   });
 
+  it('lays a cycle out left to right in declaration order, one station per layer', async () => {
+    // Greedy cycle breaking ranks a four-node cycle starting at its third node.
+    // Declaration order is reading order: the author lists stations in the order
+    // they want them read, and the edge back to the first is the one that wraps.
+    const stations = ['plan', 'act', 'observe', 'judge'];
+    const laid = await laidOut({
+      nodes: stations.map((id) => ({ id, type: 'client', label: id })),
+      edges: [
+        { id: 'e1', type: 'flow', source: 'plan', target: 'act' },
+        { id: 'e2', type: 'flow', source: 'act', target: 'observe' },
+        { id: 'e3', type: 'flow', source: 'observe', target: 'judge' },
+        { id: 'e4', type: 'flow', source: 'judge', target: 'plan' },
+      ],
+    });
+    const xs = stations.map((id) => {
+      const station = laid.nodes.find((node) => node.node.id === id);
+      if (station === undefined) throw new Error(`expected station ${id} in the layout`);
+      return station.position.x;
+    });
+    // Sorted and deduplicated: a tie would mean two stations share a layer.
+    expect(xs).toEqual([...new Set(xs)].sort((a, b) => a - b));
+  });
+
   it('keeps circles square regardless of label length', async () => {
     const laid = await laidOut({
       nodes: [
