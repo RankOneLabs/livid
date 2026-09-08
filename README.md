@@ -45,11 +45,13 @@ The React renderer can go shallow and descend on demand, which is what keeps
 large graphs viable.
 
 In a loop, declaration order is reading order. A layered layout has to pick
-some edge of every cycle to draw as the return, and livid picks by the order
-the spec lists the nodes: the loop reads left to right from its first-listed
-station and the edge back to it is the one drawn wrapping around — rather than
-whichever edge a heuristic happened to reverse. Acyclic specs are ranked by
-their edges alone, as before.
+some edge of every cycle to draw as a return, and livid picks by the order the
+spec lists the nodes: edges that point at an earlier-listed node are the ones
+drawn wrapping around, and every other edge runs forwards — rather than
+whichever edges a heuristic happened to reverse. A simple cycle therefore reads
+left to right from its first-listed station with one return arc; a cycle with
+chords gets a return arc per chord. Acyclic specs are ranked by their edges
+alone, as before.
 
 ## Where user control stops
 

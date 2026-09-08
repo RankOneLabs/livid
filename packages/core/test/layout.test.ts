@@ -129,7 +129,7 @@ describe('layout', () => {
     expect((long?.size.width ?? 0) > (short?.size.width ?? 0)).toBe(true);
   });
 
-  it('lays a cycle out in declaration order, so the wrap-back is the edge into the first node', async () => {
+  it('lays a cycle out left to right in declaration order, one station per layer', async () => {
     // Greedy cycle breaking ranks a four-node cycle starting at its third node.
     // Declaration order is reading order: the author lists stations in the order
     // they want them read, and the edge back to the first is the one that wraps.
@@ -148,7 +148,8 @@ describe('layout', () => {
       if (station === undefined) throw new Error(`expected station ${id} in the layout`);
       return station.position.x;
     });
-    expect(xs).toEqual([...xs].sort((a, b) => a - b));
+    // Sorted and deduplicated: a tie would mean two stations share a layer.
+    expect(xs).toEqual([...new Set(xs)].sort((a, b) => a - b));
   });
 
   it('keeps circles square regardless of label length', async () => {

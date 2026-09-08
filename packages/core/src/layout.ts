@@ -167,8 +167,8 @@ function elkOptions(options: LayoutOptions): ElkOptions {
     // in whatever order the heuristic happened to produce — a five-stage cycle
     // has been seen starting at its second stage, with the return edge drawn
     // forwards and a forward edge drawn backwards. Model order makes the choice
-    // the author's: nodes rank in declaration order, and an edge pointing at an
-    // earlier-declared node is the one that wraps back. Declaration order is
+    // the author's: the edges that point at earlier-declared nodes are the ones
+    // that wrap back, and every other edge runs forwards. Declaration order is
     // reading order, which is what a map's author expects anyway.
     'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
   };
