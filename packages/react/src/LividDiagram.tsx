@@ -12,7 +12,7 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react';
-import type { AnyRegistry, EdgeId, LaidOutDiagram, NodeId, StateFrame } from '@rankonelabs/livid-core';
+import type { AnyRegistry, EdgeId, LaidOutDiagram, NodeId, Point, StateFrame } from '@rankonelabs/livid-core';
 
 import { toReactDiagram, type ReactEdgeData, type ReactNodeData } from './model.js';
 
@@ -54,7 +54,7 @@ function DiagramNode({ data }: NodeProps<LividNode>) {
   </div>;
 }
 
-function routePath(route: readonly { readonly x: number; readonly y: number }[]): string {
+function routePath(route: readonly Point[]): string {
   const first = route[0];
   return first === undefined ? '' : `M ${first.x} ${first.y}${route.slice(1).map((point) => ` L ${point.x} ${point.y}`).join('')}`;
 }

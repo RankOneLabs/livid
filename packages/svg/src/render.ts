@@ -94,8 +94,9 @@ export function renderFigure<R extends AnyRegistry>(
 
   const levels = levelsOf(diagram, options.caption ?? null, options.levels !== 'root');
   const title = options.title ?? null;
-  const arrowhead = arrowheadOf(theme.metrics, () => fingerprintOf(levels, theme, title));
-  const rendered = levels.map((level) => renderLevel(level, frame, theme, arrowhead));
+  const arrowhead = arrowheadOf(theme.metrics, () => fingerprintOf({ levels, theme, title }));
+  const renderContext: RenderContext = { frame, theme, arrowhead };
+  const rendered = levels.map((level) => renderLevel(level, renderContext));
 
   const captionHeight = theme.typography.captionSize + theme.metrics.labelGap * 2;
   const width =
@@ -213,12 +214,14 @@ function heightOf(level: RenderedLevel, captionHeight: number): number {
  * One level
  * ------------------------------------------------------------------ */
 
-function renderLevel<R extends AnyRegistry>(
-  level: Level<R>,
-  frame: StateFrame,
-  theme: SvgTheme,
-  arrowhead: Arrowhead | null,
-): RenderedLevel {
+interface RenderContext {
+  readonly frame: StateFrame;
+  readonly theme: SvgTheme;
+  readonly arrowhead: Arrowhead | null;
+}
+
+function renderLevel<R extends AnyRegistry>(level: Level<R>, context: RenderContext): RenderedLevel {
+  const { frame, theme, arrowhead } = context;
   const { diagram } = level;
   const colours = new Map(
     diagram.lines.map((line, index) => [line.id as string, lineColour(theme.palette, line.color, index)]),
@@ -234,10 +237,11 @@ function renderLevel<R extends AnyRegistry>(
       return visual === undefined ? [] : [[edge.edge.id as string, visual] as const];
     }),
   );
-  const context: EdgeContext = { lineOfNode, colourOf, frame, edgeVisuals, theme, arrowhead };
+  const edgeContext: EdgeContext = { lineOfNode, colourOf, frame, edgeVisuals, theme, arrowhead };
+  const nodeContext: NodeContext<R> = { diagram, frame, colourOf, theme };
 
-  const edges = diagram.edges.map((edge) => renderEdge(edge, context));
-  const nodes = diagram.nodes.map((node) => renderNode(node, diagram, frame, colourOf, theme));
+  const edges = diagram.edges.map((edge) => renderEdge(edge, edgeContext));
+  const nodes = diagram.nodes.map((node) => renderNode(node, nodeContext));
 
   // Edges first so tracks pass under stations rather than over them.
   return {
@@ -295,7 +299,10 @@ function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeCo
       `points="${points}" fill="none" stroke="${visual === undefined ? colourOf(targetLine) : theme.palette.states[visual.tint]}" stroke-width="${weight}" ` +
       `stroke-linejoin="round" stroke-linecap="round"` +
       `${arrowhead === null ? '' : ` ${arrowEndAttr(arrowhead)}`}/>`,
-    box: unionOf([boxAround(edge.route, weight / 2), headBox(edge.route, weight, arrowhead)]),
+    box: unionOf([
+      boxAround(edge.route, weight / 2),
+      headBox({ route: edge.route, strokeWidth: weight, arrowhead }),
+    ]),
   };
 }
 
@@ -308,19 +315,27 @@ function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeCo
  * a stray pixel of overflow. So the head's reach is reserved around the vertex
  * it is drawn at, which for `marker-end` is the route's last point.
  */
-function headBox(route: readonly Point[], strokeWidth: number, arrowhead: Arrowhead | null): Box {
+interface HeadBoxInput {
+  readonly route: readonly Point[];
+  readonly strokeWidth: number;
+  readonly arrowhead: Arrowhead | null;
+}
+
+function headBox({ route, strokeWidth, arrowhead }: HeadBoxInput): Box {
   const tip = route[route.length - 1];
   if (arrowhead === null || tip === undefined) return EMPTY_BOX;
   return boxAround([tip], arrowheadReach(arrowhead, strokeWidth));
 }
 
-function renderNode<R extends AnyRegistry>(
-  placed: LaidOutNode<R>,
-  diagram: LaidOutDiagram<R>,
-  frame: StateFrame,
-  colourOf: (line: string | null) => string,
-  theme: SvgTheme,
-): Part {
+interface NodeContext<R extends AnyRegistry> {
+  readonly diagram: LaidOutDiagram<R>;
+  readonly frame: StateFrame;
+  readonly colourOf: (line: string | null) => string;
+  readonly theme: SvgTheme;
+}
+
+function renderNode<R extends AnyRegistry>(placed: LaidOutNode<R>, context: NodeContext<R>): Part {
+  const { diagram, frame, colourOf, theme } = context;
   const typeDef = diagram.registry.nodeTypes[placed.node.type];
   const shape = typeDef?.shape ?? 'rect';
   const glyph = typeDef?.glyph ?? 'none';
@@ -398,11 +413,13 @@ function stateAttributes(state: string | undefined, visual: StateVisual | undefi
  * head's proportions have interchangeable definitions — and those proportions
  * are hashed too, so two that disagree cannot quietly share one.
  */
-function fingerprintOf<R extends AnyRegistry>(
-  levels: readonly Level<R>[],
-  theme: SvgTheme,
-  title: string | null,
-): string {
+interface FingerprintInput<R extends AnyRegistry> {
+  readonly levels: readonly Level<R>[];
+  readonly theme: SvgTheme;
+  readonly title: string | null;
+}
+
+function fingerprintOf<R extends AnyRegistry>({ levels, theme, title }: FingerprintInput<R>): string {
   const head: readonly (string | number)[] = [
     title ?? '',
     theme.metrics.arrowLength,

@@ -53,7 +53,7 @@ export function validateDiagram<R extends AnyRegistry>(
   spec: DiagramSpec,
   options: ValidateOptions = {},
 ): Result<ValidDiagram<R>, readonly DiagramError[]> {
-  const level = validateLevel(registry, spec, ROOT_PATH);
+  const level = validateLevel({ registry, spec, path: ROOT_PATH });
   const errors = [...registryOverflows(registry, options), ...level.errors];
 
   return errors.length > 0 ? err(errors) : ok(level.diagram);
@@ -64,6 +64,12 @@ interface Level<R extends AnyRegistry> {
   readonly errors: readonly DiagramError[];
 }
 
+interface LevelInput<R extends AnyRegistry> {
+  readonly registry: R;
+  readonly spec: DiagramSpec;
+  readonly path: DiagramPath;
+}
+
 /** What every per-item validator needs, grouped rather than passed loose. */
 interface LevelContext<R extends AnyRegistry> {
   readonly registry: R;
@@ -72,9 +78,9 @@ interface LevelContext<R extends AnyRegistry> {
   readonly declaredNodeIds: ReadonlySet<string>;
 }
 
-function validateLevel<R extends AnyRegistry>(registry: R, spec: DiagramSpec, path: DiagramPath): Level<R> {
+function validateLevel<R extends AnyRegistry>({ registry, spec, path }: LevelInput<R>): Level<R> {
   const lineSpecs = markFirstOccurrences(spec.lines ?? [], (line) => line.id);
-  const lineOutcomes = lineSpecs.map(({ item, isFirst }) => validateLine(item, isFirst, path));
+  const lineOutcomes = lineSpecs.map(({ item, isFirst }) => validateLine({ spec: item, isFirst, path }));
   const lines = valuesOf(lineOutcomes);
 
   const nodeSpecs = markFirstOccurrences(spec.nodes, (node) => node.id);
@@ -88,11 +94,11 @@ function validateLevel<R extends AnyRegistry>(registry: R, spec: DiagramSpec, pa
     declaredNodeIds: new Set(nodeSpecs.filter(({ isFirst }) => isFirst).map(({ item }) => item.id)),
   };
 
-  const nodeOutcomes = nodeSpecs.map(({ item, isFirst }) => validateNode(context, item, isFirst));
+  const nodeOutcomes = nodeSpecs.map(({ item, isFirst }) => validateNode({ context, spec: item, isFirst }));
   const nodes = valuesOf(nodeOutcomes);
 
   const edgeOutcomes = markFirstOccurrences(spec.edges, (edge) => edge.id).map(({ item, isFirst }) =>
-    validateEdge(context, item, isFirst),
+    validateEdge({ context, spec: item, isFirst }),
   );
   const edges = valuesOf(edgeOutcomes);
 
@@ -102,21 +108,33 @@ function validateLevel<R extends AnyRegistry>(registry: R, spec: DiagramSpec, pa
       ...errorsOf(lineOutcomes),
       ...errorsOf(nodeOutcomes),
       ...errorsOf(edgeOutcomes),
-      ...illegalBranches(context, nodes, edges),
+      ...illegalBranches({ context, nodes, edges }),
     ],
   };
 }
 
-function validateLine(spec: LineSpec, isFirst: boolean, path: DiagramPath): Collected<Line, DiagramError> {
+interface LineValidationInput {
+  readonly spec: LineSpec;
+  readonly isFirst: boolean;
+  readonly path: DiagramPath;
+}
+
+function validateLine({ spec, isFirst, path }: LineValidationInput): Collected<Line, DiagramError> {
   if (!isFirst) return rejected({ kind: 'duplicate_line_id', path, lineId: spec.id });
   return collected({ id: lineId(spec.id), label: spec.label, color: spec.color });
 }
 
-function validateNode<R extends AnyRegistry>(
-  context: LevelContext<R>,
-  spec: NodeSpec,
-  isFirst: boolean,
-): Collected<ValidNode<R>, DiagramError> {
+interface NodeValidationInput<R extends AnyRegistry> {
+  readonly context: LevelContext<R>;
+  readonly spec: NodeSpec;
+  readonly isFirst: boolean;
+}
+
+function validateNode<R extends AnyRegistry>({
+  context,
+  spec,
+  isFirst,
+}: NodeValidationInput<R>): Collected<ValidNode<R>, DiagramError> {
   const { registry, path } = context;
 
   if (!isFirst) return rejected({ kind: 'duplicate_node_id', path, nodeId: spec.id });
@@ -135,10 +153,16 @@ function validateNode<R extends AnyRegistry>(
       : [];
 
   const detail = validateConfig(typeDef.detail, spec.detail);
-  if (!detail.ok) return { value: null, errors: [...lineErrors, toNodeError(detail.error, path, spec.id, spec.type)] };
+  if (!detail.ok) {
+    return {
+      value: null,
+      errors: [...lineErrors, toNodeError({ error: detail.error, path, entityId: spec.id, type: spec.type })],
+    };
+  }
 
   const id = nodeId(spec.id);
-  const nested = spec.children == null ? null : validateLevel(registry, spec.children, descend(path, id));
+  const nested =
+    spec.children == null ? null : validateLevel({ registry, spec: spec.children, path: descend(path, id) });
 
   // Cast: every field has been checked against the registry entry for
   // `spec.type`, which is exactly the invariant ValidNode encodes. The union
@@ -156,11 +180,17 @@ function validateNode<R extends AnyRegistry>(
   return collected(node, [...lineErrors, ...(nested?.errors ?? [])]);
 }
 
-function validateEdge<R extends AnyRegistry>(
-  context: LevelContext<R>,
-  spec: EdgeSpec,
-  isFirst: boolean,
-): Collected<ValidEdge<R>, DiagramError> {
+interface EdgeValidationInput<R extends AnyRegistry> {
+  readonly context: LevelContext<R>;
+  readonly spec: EdgeSpec;
+  readonly isFirst: boolean;
+}
+
+function validateEdge<R extends AnyRegistry>({
+  context,
+  spec,
+  isFirst,
+}: EdgeValidationInput<R>): Collected<ValidEdge<R>, DiagramError> {
   const { registry, path, declaredNodeIds } = context;
 
   if (!isFirst) return rejected({ kind: 'duplicate_edge_id', path, edgeId: spec.id });
@@ -185,7 +215,12 @@ function validateEdge<R extends AnyRegistry>(
     );
 
   const detail = validateConfig(typeDef.detail, spec.detail);
-  if (!detail.ok) return { value: null, errors: [...endpointErrors, toEdgeError(detail.error, path, spec.id, spec.type)] };
+  if (!detail.ok) {
+    return {
+      value: null,
+      errors: [...endpointErrors, toEdgeError({ error: detail.error, path, entityId: spec.id, type: spec.type })],
+    };
+  }
   if (endpointErrors.length > 0) return { value: null, errors: endpointErrors };
 
   // Cast: same reasoning as ValidNode above.
@@ -206,11 +241,17 @@ function validateEdge<R extends AnyRegistry>(
  * structural and needs no resolved lines, unlike the line-change invariant,
  * which has to wait for normalization.
  */
-function illegalBranches<R extends AnyRegistry>(
-  context: LevelContext<R>,
-  nodes: readonly ValidNode<R>[],
-  edges: readonly ValidEdge<R>[],
-): readonly DiagramError[] {
+interface BranchValidationInput<R extends AnyRegistry> {
+  readonly context: LevelContext<R>;
+  readonly nodes: readonly ValidNode<R>[];
+  readonly edges: readonly ValidEdge<R>[];
+}
+
+function illegalBranches<R extends AnyRegistry>({
+  context,
+  nodes,
+  edges,
+}: BranchValidationInput<R>): readonly DiagramError[] {
   const outgoing = edges.reduce(
     (counts, edge) => counts.set(edge.source, (counts.get(edge.source) ?? 0) + 1),
     new Map<string, number>(),
@@ -259,25 +300,32 @@ function markFirstOccurrences<T>(items: readonly T[], keyOf: (item: T) => string
   });
 }
 
-function toNodeError(error: ConfigError, path: DiagramPath, nodeId: string, type: string): DiagramError {
+interface DetailErrorInput {
+  readonly error: ConfigError;
+  readonly path: DiagramPath;
+  readonly entityId: string;
+  readonly type: string;
+}
+
+function toNodeError({ error, path, entityId, type }: DetailErrorInput): DiagramError {
   switch (error.kind) {
     case 'async':
-      return { kind: 'async_schema', path, entityId: nodeId, type };
+      return { kind: 'async_schema', path, entityId, type };
     case 'threw':
-      return { kind: 'schema_threw', path, entityId: nodeId, type, message: error.message };
+      return { kind: 'schema_threw', path, entityId, type, message: error.message };
     case 'issues':
-      return { kind: 'invalid_detail', path, nodeId, type, issues: error.issues };
+      return { kind: 'invalid_detail', path, nodeId: entityId, type, issues: error.issues };
   }
 }
 
-function toEdgeError(error: ConfigError, path: DiagramPath, edgeId: string, type: string): DiagramError {
+function toEdgeError({ error, path, entityId, type }: DetailErrorInput): DiagramError {
   switch (error.kind) {
     case 'async':
-      return { kind: 'async_schema', path, entityId: edgeId, type };
+      return { kind: 'async_schema', path, entityId, type };
     case 'threw':
-      return { kind: 'schema_threw', path, entityId: edgeId, type, message: error.message };
+      return { kind: 'schema_threw', path, entityId, type, message: error.message };
     case 'issues':
-      return { kind: 'invalid_edge_detail', path, edgeId, type, issues: error.issues };
+      return { kind: 'invalid_edge_detail', path, edgeId: entityId, type, issues: error.issues };
   }
 }
 

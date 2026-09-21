@@ -40,6 +40,8 @@ function normalizeLevel<R extends AnyRegistry>(diagram: ValidDiagram<R>, path: D
 
   const nodes = assigned.nodes.map((node, index) => {
     const child = nested[index];
+    // Cast: replacing one shared field preserves the registry-discriminated
+    // union, but TypeScript cannot reconstruct that mapped union structurally.
     return (child === null || child === undefined ? node : { ...node, children: child.diagram }) as ValidNode<R>;
   });
 
@@ -81,6 +83,8 @@ function assignLines<R extends AnyRegistry>(diagram: ValidDiagram<R>): ValidDiag
     ...diagram,
     nodes: diagram.nodes.map((node) => {
       const line = lineByNode.get(node.id) ?? fallback;
+      // Cast: replacing one shared field preserves the registry-discriminated
+      // union, but TypeScript cannot reconstruct that mapped union structurally.
       return (line === node.line ? node : { ...node, line }) as ValidNode<R>;
     }),
   };

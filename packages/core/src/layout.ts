@@ -78,7 +78,7 @@ export async function layout<R extends AnyRegistry>(
 ): Promise<Result<LaidOutDiagram<R>, readonly DiagramError[]>> {
   const normalized = normalize(diagram);
   if (!normalized.ok) return normalized;
-  return ok(await layoutLevel(normalized.value, options, false));
+  return ok(await layoutLevel({ diagram: normalized.value, options, isDeep: false }));
 }
 
 /**
@@ -93,16 +93,25 @@ export async function layoutDeep<R extends AnyRegistry>(
 ): Promise<Result<LaidOutDiagram<R>, readonly DiagramError[]>> {
   const normalized = normalize(diagram);
   if (!normalized.ok) return normalized;
-  return ok(await layoutLevel(normalized.value, options, true));
+  return ok(await layoutLevel({ diagram: normalized.value, options, isDeep: true }));
 }
 
-async function layoutLevel<R extends AnyRegistry>(
-  diagram: ValidDiagram<R>,
-  options: LayoutOptions,
-  deep: boolean,
-): Promise<LaidOutDiagram<R>> {
+interface LayoutLevelInput<R extends AnyRegistry> {
+  readonly diagram: ValidDiagram<R>;
+  readonly options: LayoutOptions;
+  readonly isDeep: boolean;
+}
+
+async function layoutLevel<R extends AnyRegistry>({
+  diagram,
+  options,
+  isDeep,
+}: LayoutLevelInput<R>): Promise<LaidOutDiagram<R>> {
   const sizes = new Map<string, Size>(
-    diagram.nodes.map((node) => [node.id as string, sizeOf(diagram, node, options.nodeSize ?? {})]),
+    diagram.nodes.map((node) => [
+      node.id as string,
+      sizeOf({ registry: diagram.registry, node, config: options.nodeSize ?? {} }),
+    ]),
   );
 
   const graph: ElkNode = {
@@ -132,7 +141,10 @@ async function layoutLevel<R extends AnyRegistry>(
         node,
         position: { x: box?.x ?? 0, y: box?.y ?? 0 },
         size: { width: box?.width ?? size.width, height: box?.height ?? size.height },
-        children: deep && node.children !== null ? await layoutLevel(node.children, options, true) : null,
+        children:
+          isDeep && node.children !== null
+            ? await layoutLevel({ diagram: node.children, options, isDeep: true })
+            : null,
       };
     }),
   );
@@ -174,12 +186,14 @@ function elkOptions(options: LayoutOptions): ElkOptions {
   };
 }
 
-function sizeOf<R extends AnyRegistry>(
-  diagram: ValidDiagram<R>,
-  node: ValidNode<R>,
-  config: NodeSizeConfig,
-): Size {
-  const typeDef = diagram.registry.nodeTypes[node.type];
+interface NodeSizeInput<R extends AnyRegistry> {
+  readonly registry: R;
+  readonly node: ValidNode<R>;
+  readonly config: NodeSizeConfig;
+}
+
+function sizeOf<R extends AnyRegistry>({ registry, node, config }: NodeSizeInput<R>): Size {
+  const typeDef = registry.nodeTypes[node.type];
   const shape: NodeShape = typeDef?.shape ?? 'rect';
   const base = config.base?.[shape] ?? DEFAULT_SIZES[shape];
 
@@ -207,4 +221,3 @@ function dropConsecutiveDuplicates(point: Point, index: number, route: readonly 
   const previous = route[index - 1];
   return previous === undefined || previous.x !== point.x || previous.y !== point.y;
 }
-
