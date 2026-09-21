@@ -14,7 +14,10 @@ async function loadFixture(relativePath) {
   const javascript = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  const runnable = javascript.replaceAll("'@rankonelabs/livid-core'", `'${coreUrl}'`);
+  const runnable = javascript.replaceAll(
+    /(['"])@rankonelabs\/livid-core\1/g,
+    (_specifier, quote) => `${quote}${coreUrl}${quote}`,
+  );
   return import(`data:text/javascript;base64,${Buffer.from(runnable).toString('base64')}`);
 }
 
