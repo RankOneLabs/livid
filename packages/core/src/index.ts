@@ -96,6 +96,7 @@ export {
   type LayoutSpacing,
   type NodeSizeConfig,
   type LayoutOptions,
+  CORE_ROUTING_OPTIONS,
   layout,
   layoutDeep,
 } from './layout.js';
