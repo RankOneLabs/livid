@@ -7,10 +7,14 @@ import type {
   NodeShape,
   Point,
   StateAnimation,
+  StateDeclarations,
   StateFrame,
   StateTint,
 } from '@rankonelabs/livid-core';
 
+// XY Flow constrains custom data to Record<string, unknown>. The named fields
+// below remain the renderer's actual data model; the index signature exists
+// only at that library boundary.
 export interface ReactNodeData extends Readonly<Record<string, unknown>> {
   readonly entityId: NodeId;
   readonly label: string;
@@ -54,10 +58,12 @@ export interface ReactDiagramModel {
   readonly height: number;
 }
 
-function visualOf(
-  states: Readonly<Record<string, { readonly tint: StateTint; readonly anim?: StateAnimation }>> | undefined,
-  state: string | undefined,
-): { readonly tint: StateTint | null; readonly animation: StateAnimation | null } {
+interface ResolvedVisual {
+  readonly tint: StateTint | null;
+  readonly animation: StateAnimation | null;
+}
+
+function visualOf(states: StateDeclarations | undefined, state: string | undefined): ResolvedVisual {
   const visual = state === undefined ? undefined : states?.[state];
   return { tint: visual?.tint ?? null, animation: visual?.anim ?? null };
 }

@@ -37,8 +37,18 @@ export function validateState<R extends AnyRegistry>(
   const diagramNodes = collectNodes(valid);
   const diagramEdges = collectEdges(valid);
   const errors = [
-    ...validateAssignments('node', input.value.nodes, diagramNodes, (type) => registry.nodeTypes[type]?.states),
-    ...validateAssignments('edge', input.value.edges, diagramEdges, (type) => registry.edgeTypes[type]?.states),
+    ...validateAssignments({
+      entity: 'node',
+      assignments: input.value.nodes,
+      entities: diagramNodes,
+      statesOf: (type) => registry.nodeTypes[type]?.states,
+    }),
+    ...validateAssignments({
+      entity: 'edge',
+      assignments: input.value.edges,
+      entities: diagramEdges,
+      statesOf: (type) => registry.edgeTypes[type]?.states,
+    }),
   ];
 
   if (errors.length > 0) return err(errors);
@@ -52,22 +62,36 @@ export function validateState<R extends AnyRegistry>(
 
 function stateFrameInput(frame: unknown): Result<StateFrameInput, readonly StateError[]> {
   if (!isRecord(frame)) return err([{ kind: 'invalid_state_frame', field: 'frame' }]);
-  const errors: StateError[] = [];
-  if (!isStringRecord(frame.nodes)) errors.push({ kind: 'invalid_state_frame', field: 'nodes' });
-  if (!isStringRecord(frame.edges)) errors.push({ kind: 'invalid_state_frame', field: 'edges' });
+  const fields = [
+    { field: 'nodes', value: frame.nodes },
+    { field: 'edges', value: frame.edges },
+  ] as const;
+  const errors = fields
+    .filter(({ value }) => !isStringRecord(value))
+    .map(({ field }): StateError => ({ kind: 'invalid_state_frame', field }));
   if (errors.length > 0) return err(errors);
+  // Casts: the complete validation above proves both properties are string
+  // records; control-flow analysis does not retain narrowing through the
+  // collection pipeline.
   return ok({
     nodes: frame.nodes as Readonly<Record<string, string>>,
     edges: frame.edges as Readonly<Record<string, string>>,
   });
 }
 
-function validateAssignments<R extends AnyRegistry>(
-  entity: 'node' | 'edge',
-  assignments: Readonly<Record<string, string>>,
-  entities: ReadonlyMap<string, ValidNode<R> | ValidEdge<R>>,
-  statesOf: (type: string) => Readonly<Record<string, unknown>> | undefined,
-): readonly StateError[] {
+interface AssignmentValidationInput<R extends AnyRegistry> {
+  readonly entity: 'node' | 'edge';
+  readonly assignments: Readonly<Record<string, string>>;
+  readonly entities: ReadonlyMap<string, ValidNode<R> | ValidEdge<R>>;
+  readonly statesOf: (type: string) => Readonly<Record<string, unknown>> | undefined;
+}
+
+function validateAssignments<R extends AnyRegistry>({
+  entity,
+  assignments,
+  entities,
+  statesOf,
+}: AssignmentValidationInput<R>): readonly StateError[] {
   return Object.entries(assignments).flatMap(([id, state]): readonly StateError[] => {
     const item = entities.get(id);
     if (item === undefined) return [{ kind: 'unknown_state_entity', entity, id } as const];
