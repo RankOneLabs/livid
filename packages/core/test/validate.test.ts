@@ -62,6 +62,26 @@ describe('validateDiagram', () => {
     expect(result.value.nodes.map((node) => node.children?.profile)).toEqual(['dependency', 'pipeline']);
   });
 
+  it('reports an invalid embedded profile at its drill-down path', () => {
+    const spec = {
+      nodes: [
+        {
+          id: 'outer',
+          type: 'client',
+          label: 'Outer',
+          childState: {
+            kind: 'embedded',
+            diagram: { profile: 'unknown', nodes: [], edges: [] },
+          },
+        },
+      ],
+      edges: [],
+    } as unknown as DiagramSpec;
+    const result = validateDiagram(registry, spec);
+    if (result.ok) throw new Error('expected invalid nested profile');
+    expect(result.error[0]?.kind === 'invalid_profile' && result.error[0].path).toEqual(['outer']);
+  });
+
   it('resolves a deferred child supplied later as a new root independently', () => {
     const parent = validateDiagram(registry, {
       profile: 'dependency',
@@ -107,12 +127,17 @@ describe('validateDiagram', () => {
           children: { nodes: [{ id: 'bad', type: 'wormhole', label: 'Bad' }], edges: [] },
           childState: { kind: 'deferred', key: 'later' },
         },
+        { id: 'also-bad', type: 'wormhole', label: 'Also bad' },
       ],
       edges: [],
     } as unknown as DiagramSpec;
     const result = validateDiagram(registry, spec);
     if (result.ok) throw new Error('expected invalid declarations');
-    expect(result.error.map((error) => error.kind)).toEqual(['invalid_profile', 'contradictory_children']);
+    expect(result.error.map((error) => error.kind)).toEqual([
+      'invalid_profile',
+      'contradictory_children',
+      'unknown_node_type',
+    ]);
     expect(result.error[0]?.kind === 'invalid_profile' && result.error[0].path).toEqual([]);
     expect(result.error[1]?.kind === 'contradictory_children' && result.error[1].nodeId).toBe('scope');
   });

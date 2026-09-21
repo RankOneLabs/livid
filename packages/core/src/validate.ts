@@ -169,14 +169,6 @@ function validateNode<R extends AnyRegistry>({
       ? [{ kind: 'unknown_line', path, nodeId: spec.id, line, known: [...context.lineIds] }]
       : [];
 
-  const detail = validateConfig(typeDef.detail, spec.detail);
-  if (!detail.ok) {
-    return {
-      value: null,
-      errors: [...lineErrors, toNodeError({ error: detail.error, path, entityId: spec.id, type: spec.type })],
-    };
-  }
-
   const id = nodeId(spec.id);
   const children = resolveChildDeclaration(spec, path);
   const nested =
@@ -188,6 +180,19 @@ function validateNode<R extends AnyRegistry>({
           path: descend(path, id),
           inheritedProfile: context.profile,
         });
+
+  const detail = validateConfig(typeDef.detail, spec.detail);
+  if (!detail.ok) {
+    return {
+      value: null,
+      errors: [
+        ...lineErrors,
+        ...children.errors,
+        ...(nested?.errors ?? []),
+        toNodeError({ error: detail.error, path, entityId: spec.id, type: spec.type }),
+      ],
+    };
+  }
 
   // Cast: every field has been checked against the registry entry for
   // `spec.type`, which is exactly the invariant ValidNode encodes. The union
