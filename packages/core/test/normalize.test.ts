@@ -151,6 +151,38 @@ describe('a line may only change at a router', () => {
     expect(result.ok && linesOf(result.value)).toEqual({ a: 'red', b: 'blue', c: 'red' });
   });
 
+  it('accepts a dependency fan-out cycle with a line change and rejects both pipeline invariants', () => {
+    const combined: DiagramSpec = {
+      profile: 'dependency',
+      lines: twoLines,
+      nodes: [
+        { id: 'a', type: 'station', label: 'A', line: 'red' },
+        { id: 'b', type: 'station', label: 'B', line: 'blue' },
+        { id: 'c', type: 'station', label: 'C', line: 'red' },
+      ],
+      edges: [
+        { id: 'a-b', type: 'flow', source: 'a', target: 'b' },
+        { id: 'a-c', type: 'flow', source: 'a', target: 'c' },
+        { id: 'b-a', type: 'flow', source: 'b', target: 'a' },
+      ],
+    };
+
+    const dependency = validateDiagram(registry, combined);
+    if (!dependency.ok) throw new Error('expected dependency graph to validate');
+    expect(normalize(dependency.value).ok).toBe(true);
+
+    const pipelineValidation = validateDiagram(registry, { ...combined, profile: 'pipeline' });
+    expect(!pipelineValidation.ok && pipelineValidation.error.some((error) => error.kind === 'illegal_branch')).toBe(
+      true,
+    );
+
+    const pipelineNormalization = normalize({ ...dependency.value, profile: 'pipeline' });
+    expect(
+      !pipelineNormalization.ok &&
+        pipelineNormalization.error.some((error) => error.kind === 'illegal_line_change'),
+    ).toBe(true);
+  });
+
   it('permits a router to pass straight through without changing line', () => {
     expect(
       normalizeErrors({

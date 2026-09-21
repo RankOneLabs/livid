@@ -58,9 +58,11 @@ function assignFallbackLines<R extends AnyRegistry>(diagram: ValidDiagram<R>): V
   const fallback: LineId | null = diagram.lines[0]?.id ?? null;
   return {
     ...diagram,
-    nodes: diagram.nodes.map((node) =>
-      (node.line === null && fallback !== null ? { ...node, line: fallback } : node) as ValidNode<R>,
-    ),
+    nodes: diagram.nodes.map((node) => {
+      // Cast: replacing the shared line field preserves the registry-discriminated
+      // union, but TypeScript cannot reconstruct that mapped union structurally.
+      return (node.line === null && fallback !== null ? { ...node, line: fallback } : node) as ValidNode<R>;
+    }),
   };
 }
 
