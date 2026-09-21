@@ -32,7 +32,7 @@ interface Level<R extends AnyRegistry> {
 }
 
 function normalizeLevel<R extends AnyRegistry>(diagram: ValidDiagram<R>, path: DiagramPath): Level<R> {
-  const assigned = assignLines(diagram);
+  const assigned = diagram.profile === 'pipeline' ? assignLines(diagram) : assignFallbackLines(diagram);
 
   const nested = assigned.nodes.map((node) =>
     node.children === null ? null : normalizeLevel(node.children, descend(path, nodeId(node.id))),
@@ -48,9 +48,19 @@ function normalizeLevel<R extends AnyRegistry>(diagram: ValidDiagram<R>, path: D
   return {
     diagram: { ...assigned, nodes },
     errors: [
-      ...illegalLineChanges(assigned, path),
+      ...(assigned.profile === 'pipeline' ? illegalLineChanges(assigned, path) : []),
       ...nested.flatMap((child) => child?.errors ?? []),
     ],
+  };
+}
+
+function assignFallbackLines<R extends AnyRegistry>(diagram: ValidDiagram<R>): ValidDiagram<R> {
+  const fallback: LineId | null = diagram.lines[0]?.id ?? null;
+  return {
+    ...diagram,
+    nodes: diagram.nodes.map((node) =>
+      (node.line === null && fallback !== null ? { ...node, line: fallback } : node) as ValidNode<R>,
+    ),
   };
 }
 

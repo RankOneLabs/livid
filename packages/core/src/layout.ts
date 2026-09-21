@@ -139,6 +139,7 @@ async function layoutLevel<R extends AnyRegistry>({
 
       return {
         node,
+        childState: node.childState,
         position: { x: box?.x ?? 0, y: box?.y ?? 0 },
         size: { width: box?.width ?? size.width, height: box?.height ?? size.height },
         children:
@@ -149,10 +150,15 @@ async function layoutLevel<R extends AnyRegistry>({
     }),
   );
 
-  const edges: readonly LaidOutEdge<R>[] = diagram.edges.map((edge) => ({ edge, route: toRoute(routed.get(edge.id)) }));
+  const edges: readonly LaidOutEdge<R>[] = diagram.edges.map((edge) => ({
+    edge,
+    route: toRoute(routed.get(edge.id)),
+    label: null,
+  }));
 
   return {
     __brand: 'LaidOutDiagram',
+    profile: diagram.profile,
     registry: diagram.registry,
     lines: diagram.lines,
     nodes,

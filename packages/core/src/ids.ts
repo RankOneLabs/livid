@@ -6,6 +6,7 @@
 export type NodeId = string & { readonly __brand: 'NodeId' };
 export type EdgeId = string & { readonly __brand: 'EdgeId' };
 export type LineId = string & { readonly __brand: 'LineId' };
+export type DeferredKey = string & { readonly __brand: 'DeferredKey' };
 
 export function nodeId(raw: string): NodeId {
   return raw as NodeId;
@@ -17,6 +18,10 @@ export function edgeId(raw: string): EdgeId {
 
 export function lineId(raw: string): LineId {
   return raw as LineId;
+}
+
+export function deferredKey(raw: string): DeferredKey {
+  return raw as DeferredKey;
 }
 
 /**

@@ -18,6 +18,16 @@ export interface DetailIssue {
  */
 export type DiagramError =
   | {
+      readonly kind: 'invalid_profile';
+      readonly path: DiagramPath;
+      readonly profile: unknown;
+    }
+  | {
+      readonly kind: 'contradictory_children';
+      readonly path: DiagramPath;
+      readonly nodeId: string;
+    }
+  | {
       readonly kind: 'duplicate_node_id';
       readonly path: DiagramPath;
       readonly nodeId: string;
@@ -133,6 +143,10 @@ export type DiagramError =
 
 export function formatError(error: DiagramError): string {
   switch (error.kind) {
+    case 'invalid_profile':
+      return `diagram profile "${String(error.profile)}" is not "pipeline" or "dependency"`;
+    case 'contradictory_children':
+      return `node "${error.nodeId}" declares both legacy children and childState`;
     case 'duplicate_node_id':
       return `duplicate node id "${error.nodeId}"`;
     case 'duplicate_edge_id':
