@@ -540,6 +540,7 @@ describe('dependency profile', () => {
     expect(edges).toHaveLength(dependencyDiagram.edges.length);
     expect(edges.every((edge) => edge.includes('data-kind="edge"'))).toBe(true);
     expect(edges.every((edge) => edge.includes('marker-end="url(#'))).toBe(true);
+    expect(edges.every((edge) => edge.includes(`stroke-width="${DEFAULT_METRICS.lineWeight}"`))).toBe(true);
     expect(svg).not.toContain('data-kind="branch"');
     expect(svg).toContain('data-edge-id="parallel-a"');
     expect(svg).toContain('data-edge-id="parallel-b"');
