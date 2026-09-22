@@ -4,7 +4,7 @@
  * reason `NodeShape` and `Glyph` are closed sets.
  */
 
-import type { Glyph, NodeShape } from '@rankonelabs/livid-core';
+import type { ChildState, Glyph, NodeShape } from '@rankonelabs/livid-core';
 
 import type { Box } from './geometry.js';
 
@@ -98,4 +98,25 @@ export function glyphMarkup(glyph: Glyph, box: Box, colour: string): string {
         `fill="none" stroke="${colour}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
       );
   }
+}
+
+/** A closed, non-interactive corner mark for available child detail. */
+export function childIndicatorMarkup(childState: ChildState, box: Box, colour: string): string {
+  if (childState.kind === 'leaf') return '';
+
+  const size = 18;
+  const inset = 5;
+  const indicatorBox: Box = {
+    minX: box.maxX - inset - size,
+    minY: box.minY + inset,
+    maxX: box.maxX - inset,
+    maxY: box.minY + inset + size,
+  };
+  const glyph: Glyph = childState.kind === 'embedded' ? 'chevron' : 'ring';
+
+  return (
+    `<g data-child-state="${childState.kind}" aria-hidden="true" pointer-events="none">` +
+    glyphMarkup(glyph, indicatorBox, colour) +
+    `</g>`
+  );
 }

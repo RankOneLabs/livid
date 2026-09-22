@@ -31,7 +31,7 @@ import type {
 
 import { type Box, EMPTY_BOX, boxAround, boxOf, placeLabel, unionOf, withExtent } from './geometry.js';
 import { type Arrowhead, arrowDefsMarkup, arrowEndAttr, arrowheadOf, arrowheadReach } from './markers.js';
-import { glyphMarkup, shapeMarkup } from './shapes.js';
+import { childIndicatorMarkup, glyphMarkup, shapeMarkup } from './shapes.js';
 import { type SvgTheme, type SvgThemeOverrides, lineColour, resolveTheme } from './theme.js';
 
 export interface SvgOptions {
@@ -89,7 +89,7 @@ export function renderFigure<R extends AnyRegistry>(
     : isObject(frameOrOptions)
       ? frameOrOptions
       : {};
-  const theme = resolveTheme(options.theme);
+  const theme = resolveTheme(options.theme, diagram.profile);
   const { padding, levelGap } = theme.metrics;
 
   const levels = levelsOf(diagram, options.caption ?? null, options.levels !== 'root');
@@ -237,7 +237,15 @@ function renderLevel<R extends AnyRegistry>(level: Level<R>, context: RenderCont
       return visual === undefined ? [] : [[edge.edge.id as string, visual] as const];
     }),
   );
-  const edgeContext: EdgeContext = { lineOfNode, colourOf, frame, edgeVisuals, theme, arrowhead };
+  const edgeContext: EdgeContext = {
+    profile: diagram.profile,
+    lineOfNode,
+    colourOf,
+    frame,
+    edgeVisuals,
+    theme,
+    arrowhead,
+  };
   const nodeContext: NodeContext<R> = { diagram, frame, colourOf, theme };
 
   const edges = diagram.edges.map((edge) => renderEdge(edge, edgeContext));
@@ -262,6 +270,7 @@ interface Part {
  * when the figure draws direction.
  */
 interface EdgeContext {
+  readonly profile: LaidOutDiagram<AnyRegistry>['profile'];
   readonly lineOfNode: ReadonlyMap<string, string | null>;
   readonly colourOf: (line: string | null) => string;
   readonly frame: StateFrame;
@@ -276,11 +285,12 @@ interface EdgeContext {
  * belongs to the new one, which is what makes an interchange read as a change.
  */
 function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeContext): Part {
-  const { lineOfNode, colourOf, frame, edgeVisuals, theme, arrowhead } = context;
+  const { profile, lineOfNode, colourOf, frame, edgeVisuals, theme, arrowhead } = context;
   const sourceLine = lineOfNode.get(edge.edge.source) ?? null;
   const targetLine = lineOfNode.get(edge.edge.target) ?? null;
-  const branching = sourceLine !== targetLine;
+  const branching = profile === 'pipeline' && sourceLine !== targetLine;
   const weight = branching ? theme.metrics.branchWeight : theme.metrics.lineWeight;
+  const kind = profile === 'dependency' ? 'edge' : branching ? 'branch' : 'track';
   const state = frame.edges[edge.edge.id];
   const visual = edgeVisuals.get(edge.edge.id);
 
@@ -293,17 +303,35 @@ function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeCo
   return {
     markup:
       `<polyline class="livid-edge" data-type="${escapeAttr(edge.edge.type)}" ` +
+      (profile === 'dependency' ? `data-edge-id="${escapeAttr(edge.edge.id)}" ` : '') +
       `data-line="${targetLine === null ? '' : escapeAttr(targetLine)}" ` +
-      `data-kind="${branching ? 'branch' : 'track'}" ` +
+      `data-kind="${kind}" ` +
       stateAttributes(state, visual) +
       `points="${points}" fill="none" stroke="${visual === undefined ? colourOf(targetLine) : theme.palette.states[visual.tint]}" stroke-width="${weight}" ` +
       `stroke-linejoin="round" stroke-linecap="round"` +
-      `${arrowhead === null ? '' : ` ${arrowEndAttr(arrowhead)}`}/>`,
+      `${arrowhead === null ? '' : ` ${arrowEndAttr(arrowhead)}`}/>` +
+      edgeLabelMarkup(edge, theme),
     box: unionOf([
       boxAround(edge.route, weight / 2),
       headBox({ route: edge.route, strokeWidth: weight, arrowhead }),
+      edge.label === null ? EMPTY_BOX : boxOf(edge.label, edge.label),
     ]),
   };
+}
+
+function edgeLabelMarkup<R extends AnyRegistry>(edge: LaidOutEdge<R>, theme: SvgTheme): string {
+  if (edge.label === null || edge.edge.label === null) return '';
+
+  const { x, y, width, height } = edge.label;
+  return (
+    `\n<g class="livid-edge-label" data-edge-id="${escapeAttr(edge.edge.id)}" pointer-events="none">` +
+    `<rect x="${round(x)}" y="${round(y)}" width="${round(width)}" height="${round(height)}" ` +
+    `fill="${theme.palette.edgeLabelBackground}"/>` +
+    `<text x="${round(x + width / 2)}" y="${round(y + height / 2 + theme.typography.labelSize / 3)}" ` +
+    `text-anchor="middle" font-family="${escapeAttr(theme.typography.fontFamily)}" ` +
+    `font-size="${theme.typography.labelSize}" font-weight="${theme.typography.labelWeight}" ` +
+    `fill="${theme.palette.label}">${escapeText(edge.edge.label)}</text></g>`
+  );
 }
 
 /**
@@ -375,6 +403,7 @@ function renderNode<R extends AnyRegistry>(placed: LaidOutNode<R>, context: Node
         strokeWidth: theme.metrics.nodeStroke,
       }),
       glyph === 'none' ? '' : glyphMarkup(glyph, box, colour),
+      diagram.profile === 'dependency' ? childIndicatorMarkup(placed.childState, box, colour) : '',
       leader,
       `<text x="${round(label.x)}" y="${round(label.y)}" text-anchor="${label.anchor}" ` +
         `font-family="${escapeAttr(theme.typography.fontFamily)}" font-size="${theme.typography.labelSize}" ` +
@@ -431,10 +460,15 @@ function fingerprintOf<R extends AnyRegistry>({ levels, theme, title }: Fingerpr
     ...level.diagram.nodes.map(
       (node) =>
         `${node.node.id}:${node.node.type}:${node.position.x},${node.position.y}:` +
-        `${node.size.width}x${node.size.height}`,
+        `${node.size.width}x${node.size.height}:${node.childState.kind}`,
     ),
     ...level.diagram.edges.map(
-      (edge) => `${edge.edge.id}:${edge.route.map((point) => `${point.x},${point.y}`).join(';')}`,
+      (edge) =>
+        `${edge.edge.id}:${edge.route.map((point) => `${point.x},${point.y}`).join(';')}:` +
+        `${edge.edge.label ?? ''}:` +
+        (edge.label === null
+          ? ''
+          : `${edge.label.x},${edge.label.y},${edge.label.width},${edge.label.height}`),
     ),
   ]);
 
