@@ -66,25 +66,27 @@ tokens through `palette.lines`; any token left unconfigured takes a colour from
 `palette.ramp` by line order, so an unthemed diagram still renders as a map
 rather than one grey tangle.
 
-An edge takes the colour of where it is *going*. Track between two stations on
-one line is that line; track leaving a router onto another line already belongs
-to the new one, which is what makes an interchange read as a change. Edges that
-cross lines are drawn at `branchWeight`, lighter than the track they leave.
+An edge takes the colour of the resolved line where it is *going*. Under the
+`pipeline` profile, track leaving a router onto another line is marked
+`data-kind="branch"` and drawn at `branchWeight`, lighter than the track it
+leaves. Under `dependency`, every edge uses `lineWeight` and is marked
+`data-kind="edge"`; line differences are independent relationships rather than
+pipeline branches.
 
 ## Direction
 
-Edges draw no arrowheads unless you ask for them:
+Dependency diagrams draw arrowheads by default because their direction is part
+of reading the graph. Pipeline diagrams preserve the quieter transit-map
+default and draw none unless you ask for them:
 
 ```ts
 const svg = renderSvg(laid.value, { theme: { metrics: { edgeArrowhead: 'target' } } })
 ```
 
-Off by default, and it is theme config rather than a structural option, because
-every livid edge is *already* directed in the data — core gives an edge a source
-and a target — so whether the drawing says so out loud is a question of look. A
-transit map with a head on every segment reads busier than one without; the
-caller knows which of the two its figure is, and the renderer draws what it is
-told.
+Set `edgeArrowhead: 'none'` to suppress the dependency default. The setting is
+theme config rather than a structural option because every livid edge is
+already directed in the data — core gives an edge a source and a target — so
+the renderer is only choosing whether to show that direction.
 
 One `<marker>` is defined per figure and shared by every edge. It fills from
 `context-stroke`, so a head is whatever colour its edge is — including when the
@@ -106,7 +108,21 @@ Every node and edge carries hooks for the page's own stylesheet:
 | Element | Class | Attributes |
 | --- | --- | --- |
 | node `<g>` | `livid-node` | `data-type`, `data-node`, `data-line`, `data-state`, `data-tint`, `data-anim` |
-| edge `<polyline>` | `livid-edge` | `data-type`, `data-line`, `data-kind` (`track` \| `branch`), `data-state`, `data-tint`, `data-anim` |
+| edge `<polyline>` | `livid-edge` | `data-type`, `data-line`, `data-kind` (`track` \| `branch` for pipelines, `edge` for dependencies), `data-edge-id` for dependencies, `data-state`, `data-tint`, `data-anim` |
+
+Dependency edges carry `data-edge-id`, so parallel relationships between the
+same pair of nodes remain independently selectable even when their endpoints
+match.
+
+## Edge labels
+
+When core supplies a `LaidOutEdge.label` box, the renderer draws the edge's
+label centered in that box. A background rectangle keeps the label readable
+over routes; configure it with `palette.edgeLabelBackground`. If theme
+typography needs more room than core reserved, the renderer expands the box
+around its centre. The rendered box is part of the SVG viewport, and core's
+label geometry is part of the figure fingerprint, so an edge label is neither
+clipped nor invisible to consumers that key figures by identity.
 
 Motion is not a renderer option, and that is on purpose. An inline SVG is stylable
 by the document around it, so hover states, transitions, and flow animation are
@@ -145,6 +161,12 @@ level it can reveal, and stacking reveals them without script. Pass
 renderer.
 
 Feed it `layoutDeep()` output if you want nested levels to have geometry.
+In the dependency presentation, nodes with embedded or deferred detail carry a
+small, non-interactive corner indicator. Embedded detail uses a chevron and
+deferred detail a ring; leaf nodes have no indicator. Embedded levels are still
+stacked from the node's resolved `children`, while deferred nodes only advertise
+detail that can be loaded by an interactive consumer. Pipeline output keeps its
+existing visual treatment.
 
 ## Configuration
 

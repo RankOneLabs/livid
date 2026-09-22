@@ -1,0 +1,114 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  layoutDeep,
+  validateDiagram,
+  type DeferredKey,
+  type DiagramSpec,
+  type LaidOutDiagram,
+  type NodeId,
+  type StateFrame,
+  type ValidateOptions,
+} from '@rankonelabs/livid-core';
+
+import { svLividRegistry } from '../../fixtures/sv-livid-v1/registry.js';
+import { svLividV1Spec } from '../../fixtures/sv-livid-v1/spec.js';
+import {
+  LividDiagram,
+  type DescendRequest,
+  type DiagramSelection,
+} from '../../packages/react/src/index.js';
+
+const validateOptions: ValidateOptions = {
+  nodeTypeLimit: 10,
+  edgeTypeLimit: 10,
+};
+
+const emptyFrame: StateFrame = { __brand: 'StateFrame', nodes: {}, edges: {} };
+
+function deferredSpec(key: DeferredKey): DiagramSpec {
+  if (key !== 'sv-livid-v1:react') return { profile: 'dependency', nodes: [], edges: [] };
+  return {
+    profile: 'dependency',
+    nodes: [
+      { id: 'component', type: 'module', label: 'LividDiagram.tsx', detail: { source: 'deferred' } },
+      { id: 'model', type: 'module', label: 'model.ts', detail: { source: 'deferred' } },
+    ],
+    edges: [
+      { id: 'component-model', type: 'import', source: 'component', target: 'model', label: 'projects' },
+    ],
+  };
+}
+
+async function layOut(spec: DiagramSpec): Promise<LaidOutDiagram<typeof svLividRegistry>> {
+  const valid = validateDiagram(svLividRegistry, spec, validateOptions);
+  if (!valid.ok) throw new Error(valid.error.map((error) => error.kind).join(', '));
+  const laid = await layoutDeep(valid.value);
+  if (!laid.ok) throw new Error(laid.error.map((error) => error.kind).join(', '));
+  return laid.value;
+}
+
+export function App() {
+  const [diagram, setDiagram] = useState<LaidOutDiagram<typeof svLividRegistry> | null>(null);
+  const [selection, setSelection] = useState<DiagramSelection | null>(null);
+  const [inspectorDetail, setInspectorDetail] = useState<unknown>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const descendingNodeId = useRef<NodeId | null>(null);
+
+  useEffect(() => {
+    let isCurrent = true;
+    void layOut(svLividV1Spec).then((next) => {
+      if (isCurrent) setDiagram(next);
+    });
+    return () => { isCurrent = false; };
+  }, []);
+
+  const inspect = useCallback((next: DiagramSelection) => {
+    setInspectorDetail(next.detail);
+  }, []);
+
+  const changeSelection = useCallback((next: DiagramSelection | null) => {
+    // A double-click emits click selection first. Ignore selection notifications
+    // for the node while its requested replacement is being installed.
+    if (next?.kind === 'node' && next.id === descendingNodeId.current) return;
+    setSelection(next);
+  }, []);
+
+  const descend = useCallback(async (request: DescendRequest) => {
+    descendingNodeId.current = request.nodeId;
+    setSelection(null);
+    setLoadError(null);
+    try {
+      if (request.childState.kind === 'embedded') {
+        const children = diagram?.nodes.find((node) => node.node.id === request.nodeId)?.children;
+        if (children !== null && children !== undefined) setDiagram(children);
+      } else {
+        const nextRoot = await layOut(deferredSpec(request.childState.key));
+        setDiagram(nextRoot);
+      }
+    } catch (cause) {
+      setLoadError(cause instanceof Error ? cause.message : 'Unable to load the deferred diagram');
+    } finally {
+      descendingNodeId.current = null;
+    }
+  }, [diagram]);
+
+  if (diagram === null) return <p>Loading system map…</p>;
+
+  return <main className="sysvista-example">
+    {loadError !== null && <p role="alert">Could not descend: {loadError}</p>}
+    <section className="sysvista-canvas">
+      <LividDiagram
+        diagram={diagram}
+        frame={emptyFrame}
+        selection={selection}
+        onSelectionChange={changeSelection}
+        onSelect={inspect}
+        onDescendRequest={(request) => { void descend(request); }}
+        fitOnReplace
+      />
+    </section>
+    <aside aria-label="Inspector">
+      <pre>{JSON.stringify(inspectorDetail, null, 2)}</pre>
+    </aside>
+  </main>;
+}

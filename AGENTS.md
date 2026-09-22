@@ -88,11 +88,17 @@ Everything meta belongs to node types declaring `isRouter`: branching out, conde
 in, terminating, and changing line. What *decides* the routing — gate, threshold,
 reading tea leaves — is domain semantics in the router type's detail schema.
 
-Two invariants, both enforced:
+Under the default `pipeline` semantics profile, two invariants are enforced:
 
-- **Fanning out is router-only.** Sinks with no outgoing edges stay ordinary.
-- **A line may only change at a router.** Needs resolved lines, so it runs after
+- **Pipeline fan-out is router-only.** Sinks with no outgoing edges stay ordinary.
+- **A pipeline line may only change at a router.** Needs resolved lines, so it runs after
   inheritance — which is why `normalize` is fallible.
+
+The `dependency` profile permits non-router fan-out, cycles, and line changes.
+It resolves each entity's line from its own declaration or the first declared
+line rather than propagating lines across edges. Every validated and laid-out
+diagram carries its resolved profile; embedded children inherit unless they
+explicitly override it.
 
 ## Pipelines as the default
 

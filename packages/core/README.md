@@ -66,16 +66,56 @@ alone.
 change without recomputing serializable geometry. State names belong to each
 registered type; their visuals use the closed tint and animation vocabularies.
 
+## Semantics profiles
+
+`DiagramSpec.profile` accepts `pipeline` or `dependency`. Omission resolves to
+`pipeline`; an embedded diagram inherits its parent's resolved profile unless
+it overrides it. The resolved profile is required on both `ValidDiagram` and
+`LaidOutDiagram`.
+
+Pipeline semantics enforce router-only fan-out and line changes and propagate
+an incoming line downstream. Dependency semantics allow non-router fan-out,
+cycles, and line changes; each entity keeps its declared line or receives the
+first declared line as a fallback. Dependency registries commonly exceed the
+default six-node-type or six-edge-type vocabulary limits, so raise
+`nodeTypeLimit` / `edgeTypeLimit` explicitly in `ValidateOptions`.
+
+## Child state
+
+Every valid and laid-out node carries `childState`, discriminated as `leaf`,
+`embedded`, or `deferred`. Legacy `children: diagram` input still works and is
+translated to embedded state; migrate new input to:
+
+```ts
+{ childState: { kind: 'embedded', diagram } }
+```
+
+Use `{ kind: 'deferred', key }` when the host will load a scope later. Core
+never resolves that opaque key. `layout()` leaves all child layouts null;
+`layoutDeep()` populates `children` only for embedded nodes and never descends
+into deferred nodes. Supply resolved deferred data as a new root spec. Until
+then, `validateState()` correctly returns `unknown_state_entity` for state that
+names an entity inside that unloaded scope.
+
+## Edge labels and routing
+
+`LaidOutEdge.label` is either null or the ELK-placed `{ x, y, width, height }`
+box. Label extents contribute to diagram bounds. Core reserves labels using the
+same conservative width-per-character estimate as nodes and owns the routing
+policy, including unmerged parallel edges, explicit edge clearances, and
+self-loop treatment.
+
 ## Vocabulary is registered, not hardcoded
 
 Core enforces *discipline* — a cardinality limit, shape-carries-type,
 colour-carries-line, `isRouter` for control flow — never membership. A pipeline
 standard and a codebase scanner declare different vocabularies and both render.
 
-Everything meta about control flow belongs to node types that declare
+Under the `pipeline` profile, everything meta about control flow belongs to node types that declare
 `isRouter`: branching out, condensing in, terminating, changing line. Edges say
-only *what flows*. Two invariants follow, and core enforces both: fanning out is
-router-only, and a line may only change at a router.
+only *what flows*. Two pipeline invariants follow: fanning out is router-only,
+and a line may only change at a router. Dependency diagrams do not apply those
+control-flow rules.
 
 What *decides* the routing — a gate, a threshold, reading tea leaves — is domain
 semantics living in the type's detail schema. Core never learns the word "gate".

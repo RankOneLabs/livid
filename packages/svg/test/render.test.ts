@@ -17,9 +17,53 @@ import {
 import { type TestRegistry, attributeValues, drawnEdgeEnds, laidOut, stateFrame } from './helpers.js';
 
 let diagram: LaidOutDiagram<TestRegistry>;
+let dependencyDiagram: LaidOutDiagram<TestRegistry>;
 
 beforeAll(async () => {
   diagram = await laidOut();
+  dependencyDiagram = await laidOut({
+    profile: 'dependency',
+    lines: [
+      { id: 'main', label: 'Main', color: 'token-main' },
+      { id: 'side', label: 'Side', color: 'token-side' },
+    ],
+    nodes: [
+      {
+        id: 'embedded',
+        type: 'work',
+        label: 'embedded',
+        line: 'main',
+        childState: { kind: 'embedded', diagram: { nodes: [], edges: [] } },
+      },
+      {
+        id: 'deferred',
+        type: 'work',
+        label: 'deferred',
+        line: 'side',
+        childState: { kind: 'deferred', key: 'later' },
+      },
+      { id: 'leaf', type: 'work', label: 'leaf', line: 'main' },
+    ],
+    edges: [
+      { id: 'parallel-a', type: 'flow', source: 'embedded', target: 'deferred', label: 'exports' },
+      { id: 'parallel-b', type: 'flow', source: 'embedded', target: 'deferred' },
+      { id: 'to-leaf', type: 'flow', source: 'deferred', target: 'leaf' },
+    ],
+  });
+});
+
+describe('pipeline regression', () => {
+  it('keeps the existing fixture byte-identical without theme overrides', () => {
+    const figure = renderFigure(diagram);
+    const fingerprint = [...figure.svg]
+      .reduce(
+        (hash, character) => Math.imul(hash ^ (character.codePointAt(0) ?? 0), 0x01000193) >>> 0,
+        0x811c9dc5,
+      )
+      .toString(36);
+
+    expect({ ...figure, fingerprint }).toMatchSnapshot();
+  });
 });
 
 describe('document', () => {
@@ -483,6 +527,169 @@ describe('arrowheads', () => {
 
     expect(figure.svg).not.toContain('Infinity');
     expect(figure.width).toBeGreaterThan(0);
+  });
+});
+
+describe('dependency profile', () => {
+  const markerIdOf = (svg: string): string | undefined => /<marker id="([^"]+)"/.exec(svg)?.[1];
+
+  it('draws direction by default and styles every edge independently', () => {
+    const svg = renderSvg(dependencyDiagram, { levels: 'root' });
+    const edges = [...svg.matchAll(/<polyline class="livid-edge"[^>]+>/g)].map((match) => match[0]);
+
+    expect(edges).toHaveLength(dependencyDiagram.edges.length);
+    expect(edges.every((edge) => edge.includes('data-kind="edge"'))).toBe(true);
+    expect(edges.every((edge) => edge.includes('marker-end="url(#'))).toBe(true);
+    expect(edges.every((edge) => edge.includes(`stroke-width="${DEFAULT_METRICS.lineWeight}"`))).toBe(true);
+    expect(svg).not.toContain('data-kind="branch"');
+    expect(svg).toContain('data-edge-id="parallel-a"');
+    expect(svg).toContain('data-edge-id="parallel-b"');
+    expect(edges.filter((edge) => edge.includes('data-line="side"')).every((edge) => edge.includes('stroke="#1B6CA8"'))).toBe(true);
+  });
+
+  it('lets an explicit theme override turn dependency arrowheads off', () => {
+    const svg = renderSvg(dependencyDiagram, { levels: 'root', theme: { metrics: { edgeArrowhead: 'none' } } });
+    expect(svg).not.toContain('<marker');
+    expect(svg).not.toContain('marker-end');
+  });
+
+  it('resolves default arrowheads from each stacked level profile', async () => {
+    const nested = (rootProfile: 'pipeline' | 'dependency', childProfile: 'pipeline' | 'dependency') =>
+      laidOut({
+        profile: rootProfile,
+        nodes: [
+          {
+            id: 'parent',
+            type: 'work',
+            label: 'parent',
+            childState: {
+              kind: 'embedded',
+              diagram: {
+                profile: childProfile,
+                nodes: [
+                  { id: 'a', type: 'work', label: 'a' },
+                  { id: 'b', type: 'work', label: 'b' },
+                ],
+                edges: [{ id: 'ab', type: 'flow', source: 'a', target: 'b' }],
+              },
+            },
+          },
+        ],
+        edges: [],
+      });
+
+    const dependencyChild = renderSvg(await nested('pipeline', 'dependency'));
+    const pipelineChild = renderSvg(await nested('dependency', 'pipeline'));
+
+    expect(dependencyChild).toContain('<marker');
+    expect(dependencyChild).toContain('marker-end="url(#');
+    expect(pipelineChild).toContain('<marker');
+    expect(pipelineChild).not.toContain('marker-end="url(#');
+    expect(
+      renderSvg(await nested('dependency', 'pipeline'), {
+        theme: { metrics: { edgeArrowhead: 'target' } },
+      }),
+    ).toContain('marker-end="url(#');
+  });
+
+  it('draws labelled edges with a configurable background inside the viewport', () => {
+    const background = '#F4F1EA';
+    const figure = renderFigure(dependencyDiagram, {
+      levels: 'root',
+      theme: { palette: { edgeLabelBackground: background } },
+    });
+    const labelled = dependencyDiagram.edges.find((edge) => edge.edge.id === 'parallel-a');
+    const shift = /<g transform="translate\((-?[\d.]+),(-?[\d.]+)\)">/.exec(figure.svg);
+
+    expect(labelled?.label).not.toBeNull();
+    expect(figure.svg).toContain(`fill="${background}"`);
+    expect(figure.svg).toContain('>exports</text>');
+    expect((labelled?.label?.x ?? 0) + Number(shift?.[1])).toBeGreaterThanOrEqual(0);
+    expect((labelled?.label?.x ?? 0) + (labelled?.label?.width ?? 0) + Number(shift?.[1])).toBeLessThanOrEqual(figure.width);
+    expect((labelled?.label?.y ?? 0) + Number(shift?.[2])).toBeGreaterThanOrEqual(0);
+    expect((labelled?.label?.y ?? 0) + (labelled?.label?.height ?? 0) + Number(shift?.[2])).toBeLessThanOrEqual(figure.height);
+  });
+
+  it('expands an edge label background and viewport for larger theme typography', () => {
+    const labelSize = 40;
+    const advanceRatio = 1;
+    const figure = renderFigure(dependencyDiagram, {
+      levels: 'root',
+      theme: { typography: { labelSize, advanceRatio } },
+    });
+    const label = /<g class="livid-edge-label"[^>]*><rect x="(-?[\d.]+)" y="(-?[\d.]+)" width="([\d.]+)" height="([\d.]+)"/.exec(
+      figure.svg,
+    );
+    const shift = /<g transform="translate\((-?[\d.]+),(-?[\d.]+)\)">/.exec(figure.svg);
+    const x = Number(label?.[1]);
+    const y = Number(label?.[2]);
+    const width = Number(label?.[3]);
+    const height = Number(label?.[4]);
+
+    expect(width).toBeGreaterThanOrEqual('exports'.length * labelSize * advanceRatio);
+    expect(height).toBeGreaterThanOrEqual(labelSize);
+    expect(x + Number(shift?.[1])).toBeGreaterThanOrEqual(0);
+    expect(x + width + Number(shift?.[1])).toBeLessThanOrEqual(figure.width);
+    expect(y + Number(shift?.[2])).toBeGreaterThanOrEqual(0);
+    expect(y + height + Number(shift?.[2])).toBeLessThanOrEqual(figure.height);
+  });
+
+  it('folds edge label text and geometry into the figure fingerprint', async () => {
+    const withoutLabel = await laidOut({
+      profile: 'dependency',
+      nodes: [
+        { id: 'a', type: 'work', label: 'a' },
+        { id: 'b', type: 'work', label: 'b' },
+      ],
+      edges: [{ id: 'ab', type: 'flow', source: 'a', target: 'b' }],
+    });
+    const withLabel = await laidOut({
+      profile: 'dependency',
+      nodes: [
+        { id: 'a', type: 'work', label: 'a' },
+        { id: 'b', type: 'work', label: 'b' },
+      ],
+      edges: [{ id: 'ab', type: 'flow', source: 'a', target: 'b', label: 'calls' }],
+    });
+
+    const first = markerIdOf(renderSvg(withoutLabel));
+    expect(first).toBe(markerIdOf(renderSvg(withoutLabel)));
+    expect(markerIdOf(renderSvg(withLabel))).not.toBe(first);
+  });
+
+  it('marks embedded and deferred children distinctly without marking leaves', () => {
+    const svg = renderSvg(dependencyDiagram, { levels: 'root' });
+    expect(svg).toContain('data-child-state="embedded" aria-hidden="true" pointer-events="none"');
+    expect(svg).toContain('data-child-state="deferred" aria-hidden="true" pointer-events="none"');
+    expect(svg).not.toContain('data-child-state="leaf"');
+  });
+
+  it('includes child availability in accessible node descriptions', () => {
+    const svg = renderSvg(dependencyDiagram, { levels: 'root' });
+
+    expect(svg).toContain('<title>embedded — Work — embedded child diagram</title>');
+    expect(svg).toContain('<title>deferred — Work — deferred child diagram</title>');
+    expect(svg).toContain('<title>leaf — Work</title>');
+  });
+
+  it('draws every edge label after every edge route', () => {
+    const svg = renderSvg(dependencyDiagram, { levels: 'root' });
+
+    expect(svg.lastIndexOf('<polyline class="livid-edge"')).toBeLessThan(
+      svg.indexOf('<g class="livid-edge-label"'),
+    );
+  });
+
+  it('accepts a light palette across the new label and direction treatment', () => {
+    const colours = {
+      surface: '#FAFAF7',
+      nodeFill: '#FFFEF8',
+      edgeLabelBackground: '#F2F0E8',
+      label: '#292824',
+    } as const;
+    const svg = renderSvg(dependencyDiagram, { levels: 'root', theme: { palette: colours } });
+
+    for (const colour of Object.values(colours)) expect(svg).toContain(colour);
   });
 });
 

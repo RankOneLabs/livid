@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { type DiagramSpec, defineRegistry, validateConfig, validateDiagram } from '../src/index.js';
+import { type DiagramSpec, defineRegistry, formatError, validateConfig, validateDiagram } from '../src/index.js';
 import { anything, asyncSchema, objectWithString, throwingSchema } from './helpers.js';
 
 const registry = defineRegistry({
@@ -32,6 +32,167 @@ function errorKinds(spec: DiagramSpec): readonly string[] {
 describe('validateDiagram', () => {
   it('accepts a well-formed spec', () => {
     expect(validateDiagram(registry, wellFormed).ok).toBe(true);
+  });
+
+  it('defaults an omitted root profile to pipeline', () => {
+    const result = validateDiagram(registry, wellFormed);
+    expect(result.ok && result.value.profile).toBe('pipeline');
+  });
+
+  it('inherits profiles into embedded children and permits an explicit override', () => {
+    const result = validateDiagram(registry, {
+      profile: 'dependency',
+      nodes: [
+        {
+          id: 'inherited',
+          type: 'client',
+          label: 'Inherited',
+          childState: { kind: 'embedded', diagram: { nodes: [], edges: [] } },
+        },
+        {
+          id: 'overridden',
+          type: 'client',
+          label: 'Overridden',
+          childState: { kind: 'embedded', diagram: { profile: 'pipeline', nodes: [], edges: [] } },
+        },
+      ],
+      edges: [],
+    });
+    if (!result.ok) throw new Error('expected valid profile inheritance');
+    expect(result.value.nodes.map((node) => node.children?.profile)).toEqual(['dependency', 'pipeline']);
+  });
+
+  it('reports an invalid embedded profile at its drill-down path', () => {
+    const spec = {
+      nodes: [
+        {
+          id: 'outer',
+          type: 'client',
+          label: 'Outer',
+          childState: {
+            kind: 'embedded',
+            diagram: { profile: 'unknown', nodes: [], edges: [] },
+          },
+        },
+      ],
+      edges: [],
+    } as unknown as DiagramSpec;
+    const result = validateDiagram(registry, spec);
+    if (result.ok) throw new Error('expected invalid nested profile');
+    expect(result.error[0]?.kind === 'invalid_profile' && result.error[0].path).toEqual(['outer']);
+  });
+
+  it('resolves a deferred child supplied later as a new root independently', () => {
+    const parent = validateDiagram(registry, {
+      profile: 'dependency',
+      nodes: [
+        { id: 'scope', type: 'client', label: 'Scope', childState: { kind: 'deferred', key: 'scope:one' } },
+      ],
+      edges: [],
+    });
+    const resolved = validateDiagram(registry, { nodes: [], edges: [] });
+    expect(parent.ok && parent.value.nodes[0]?.childState).toEqual({ kind: 'deferred', key: 'scope:one' });
+    expect(resolved.ok && resolved.value.profile).toBe('pipeline');
+  });
+
+  it('translates every child declaration into one resolved child state', () => {
+    const child = { nodes: [], edges: [] } satisfies DiagramSpec;
+    const result = validateDiagram(registry, {
+      nodes: [
+        { id: 'leaf', type: 'client', label: 'Leaf' },
+        { id: 'legacy', type: 'client', label: 'Legacy', children: child },
+        { id: 'embedded', type: 'client', label: 'Embedded', childState: { kind: 'embedded', diagram: child } },
+        { id: 'deferred', type: 'client', label: 'Deferred', childState: { kind: 'deferred', key: 'later' } },
+      ],
+      edges: [],
+    });
+    if (!result.ok) throw new Error('expected valid child declarations');
+    expect(result.value.nodes.map((node) => node.childState.kind)).toEqual([
+      'leaf',
+      'embedded',
+      'embedded',
+      'deferred',
+    ]);
+    expect(result.value.nodes.map((node) => node.children !== null)).toEqual([false, true, true, false]);
+  });
+
+  it.each([
+    ['a null declaration', null],
+    ['an unknown kind', { kind: 'leaf' }],
+    ['an embedded declaration without a diagram', { kind: 'embedded' }],
+    ['an embedded declaration with a malformed diagram', { kind: 'embedded', diagram: null }],
+    ['a deferred declaration without a key', { kind: 'deferred' }],
+    ['a deferred declaration with a non-string key', { kind: 'deferred', key: 42 }],
+  ])('rejects %s as an invalid child state', (_description, childState) => {
+    const spec = {
+      nodes: [{ id: 'scope', type: 'client', label: 'Scope', childState }],
+      edges: [],
+    } as unknown as DiagramSpec;
+    const result = validateDiagram(registry, spec);
+    if (result.ok) throw new Error('expected invalid child state');
+
+    expect(result.error[0]).toEqual({
+      kind: 'invalid_child_state',
+      path: [],
+      nodeId: 'scope',
+      value: childState,
+    });
+  });
+
+  it('keeps nested trace context on an invalid child state', () => {
+    const spec = {
+      nodes: [
+        {
+          id: 'outer',
+          type: 'client',
+          label: 'Outer',
+          childState: {
+            kind: 'embedded',
+            diagram: {
+              nodes: [{ id: 'inner', type: 'client', label: 'Inner', childState: { kind: 'unknown' } }],
+              edges: [],
+            },
+          },
+        },
+      ],
+      edges: [],
+    } as unknown as DiagramSpec;
+    const result = validateDiagram(registry, spec);
+    if (result.ok) throw new Error('expected invalid child state');
+
+    expect(result.error[0]?.kind === 'invalid_child_state' && result.error[0].path).toEqual(['outer']);
+  });
+
+  it('formats an invalid child state without inspecting its untrusted value', () => {
+    expect(formatError({ kind: 'invalid_child_state', path: [], nodeId: 'scope', value: null })).toBe(
+      'node "scope" has an invalid childState declaration',
+    );
+  });
+
+  it('collects invalid profiles and contradictory child declarations with trace context', () => {
+    const spec = {
+      profile: 'unknown',
+      nodes: [
+        {
+          id: 'scope',
+          type: 'client',
+          label: 'Scope',
+          children: { nodes: [{ id: 'bad', type: 'wormhole', label: 'Bad' }], edges: [] },
+          childState: { kind: 'deferred', key: 'later' },
+        },
+        { id: 'also-bad', type: 'wormhole', label: 'Also bad' },
+      ],
+      edges: [],
+    } as unknown as DiagramSpec;
+    const result = validateDiagram(registry, spec);
+    if (result.ok) throw new Error('expected invalid declarations');
+    expect(result.error.map((error) => error.kind)).toEqual([
+      'invalid_profile',
+      'contradictory_children',
+      'unknown_node_type',
+    ]);
+    expect(result.error[0]?.kind === 'invalid_profile' && result.error[0].path).toEqual([]);
+    expect(result.error[1]?.kind === 'contradictory_children' && result.error[1].nodeId).toBe('scope');
   });
 
   it('rejects a node whose type is not registered', () => {
@@ -229,6 +390,10 @@ describe('branching is router-only', () => {
 
   it('accepts the same fan-out from a router', () => {
     expect(validateDiagram(registry, fanOut('gate')).ok).toBe(true);
+  });
+
+  it('accepts non-router fan-out under dependency semantics', () => {
+    expect(validateDiagram(registry, { ...fanOut('client'), profile: 'dependency' }).ok).toBe(true);
   });
 
   it('accepts a single outgoing edge from a non-router', () => {

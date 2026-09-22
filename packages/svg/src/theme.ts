@@ -6,7 +6,7 @@
  * SVG in a post and the React canvas in an app the same map.
  */
 
-import type { StateTint } from '@rankonelabs/livid-core';
+import type { SemanticsProfile, StateTint } from '@rankonelabs/livid-core';
 
 /** Where a label sits when its shape cannot hold text. */
 export type LabelSide = 'below' | 'right';
@@ -33,6 +33,8 @@ export interface Palette {
   readonly ramp: readonly string[];
   readonly surface: string;
   readonly nodeFill: string;
+  /** Fill behind edge labels, keeping text legible over crossing routes. */
+  readonly edgeLabelBackground: string;
   readonly label: string;
   readonly caption: string;
   readonly divider: string;
@@ -103,6 +105,7 @@ export const DEFAULT_PALETTE: Palette = {
   ramp: ['#D64500', '#1B6CA8', '#5B3E96', '#0F7B6C', '#A8341F', '#6B7280'],
   surface: '#FFFFFF',
   nodeFill: '#FFFFFF',
+  edgeLabelBackground: '#FFFFFF',
   label: '#16181D',
   caption: '#6B7280',
   divider: '#D8DCE3',
@@ -144,7 +147,7 @@ export const DEFAULT_THEME: SvgTheme = {
   metrics: DEFAULT_METRICS,
 };
 
-export function resolveTheme(overrides: SvgThemeOverrides = {}): SvgTheme {
+export function resolveTheme(overrides: SvgThemeOverrides = {}, profile: SemanticsProfile = 'pipeline'): SvgTheme {
   return {
     palette: {
       ...DEFAULT_PALETTE,
@@ -153,7 +156,11 @@ export function resolveTheme(overrides: SvgThemeOverrides = {}): SvgTheme {
       states: { ...DEFAULT_PALETTE.states, ...overrides.palette?.states },
     },
     typography: { ...DEFAULT_TYPOGRAPHY, ...overrides.typography },
-    metrics: { ...DEFAULT_METRICS, ...overrides.metrics },
+    metrics: {
+      ...DEFAULT_METRICS,
+      ...(profile === 'dependency' ? { edgeArrowhead: 'target' as const } : {}),
+      ...overrides.metrics,
+    },
   };
 }
 

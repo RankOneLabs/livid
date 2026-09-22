@@ -70,4 +70,16 @@ describe('validateState', () => {
       { kind: 'invalid_state_frame', field: 'edges' },
     ]);
   });
+
+  it('rejects state for an entity inside an unloaded deferred scope', () => {
+    const deferred = validateDiagram(registry, {
+      nodes: [
+        { id: 'scope', type: 'unit', label: 'Scope', childState: { kind: 'deferred', key: 'scope:one' } },
+      ],
+      edges: [],
+    });
+    if (!deferred.ok) throw new Error('expected valid deferred scope');
+    const result = validateState(registry, deferred.value, { nodes: { hidden: 'active' }, edges: {} });
+    expect(!result.ok && result.error[0]).toEqual({ kind: 'unknown_state_entity', entity: 'node', id: 'hidden' });
+  });
 });

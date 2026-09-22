@@ -168,6 +168,73 @@ describe('layout', () => {
     const laid = await laidOut();
     expect(laid.nodes.every((node) => node.children === null)).toBe(true);
   });
+
+  it('preserves child state while leaving embedded and deferred children shallow', async () => {
+    const laid = await laidOut({
+      nodes: [
+        {
+          id: 'embedded',
+          type: 'client',
+          label: 'Embedded',
+          childState: { kind: 'embedded', diagram: { nodes: [], edges: [] } },
+        },
+        { id: 'deferred', type: 'client', label: 'Deferred', childState: { kind: 'deferred', key: 'later' } },
+      ],
+      edges: [],
+    });
+    expect(laid.nodes.map((node) => [node.childState.kind, node.children])).toEqual([
+      ['embedded', null],
+      ['deferred', null],
+    ]);
+  });
+
+  it('places edge labels inside the level bounds and leaves unlabelled edges null', async () => {
+    const laid = await laidOut({
+      profile: 'dependency',
+      nodes: [
+        { id: 'a', type: 'client', label: 'A' },
+        { id: 'b', type: 'client', label: 'B' },
+      ],
+      edges: [
+        { id: 'labelled', type: 'flow', source: 'a', target: 'b', label: 'request payload' },
+        { id: 'plain', type: 'log', source: 'a', target: 'b' },
+      ],
+    });
+    const label = laid.edges.find((edge) => edge.edge.id === 'labelled')?.label;
+    expect(label !== null && label !== undefined && label.x + label.width <= laid.bounds.width).toBe(true);
+    expect(label !== null && label !== undefined && label.y + label.height <= laid.bounds.height).toBe(true);
+    expect(laid.edges.find((edge) => edge.edge.id === 'plain')?.label).toBeNull();
+  });
+
+  it('keeps parallel edge ids and routes distinct', async () => {
+    const laid = await laidOut({
+      profile: 'dependency',
+      nodes: [
+        { id: 'a', type: 'client', label: 'A' },
+        { id: 'b', type: 'client', label: 'B' },
+      ],
+      edges: [
+        { id: 'one', type: 'flow', source: 'a', target: 'b' },
+        { id: 'two', type: 'log', source: 'a', target: 'b' },
+      ],
+    });
+    expect(laid.edges.map((edge) => edge.edge.id)).toEqual(['one', 'two']);
+    expect(laid.edges[0]?.route).not.toEqual(laid.edges[1]?.route);
+  });
+
+  it('routes a self-loop through at least two distinct points', async () => {
+    const laid = await laidOut({
+      nodes: [{ id: 'a', type: 'client', label: 'A' }],
+      edges: [{ id: 'loop', type: 'flow', source: 'a', target: 'a' }],
+    });
+    expect(new Set(laid.edges[0]?.route.map((point) => `${point.x}:${point.y}`)).size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('round-trips through JSON', async () => {
+    const laid = await laidOut();
+    const serialized = JSON.stringify(laid);
+    expect(JSON.stringify(JSON.parse(serialized))).toBe(serialized);
+  });
 });
 
 describe('layoutDeep', () => {
@@ -175,6 +242,20 @@ describe('layoutDeep', () => {
     const laid = await laidOut(spec, true);
     const draft = laid.nodes.find((node) => node.node.id === 'draft');
     expect(draft?.children?.nodes.map((child) => child.node.id)).toEqual(['ctx', 'call']);
+  });
+
+  it('never descends into deferred children', async () => {
+    const laid = await laidOut(
+      {
+        nodes: [
+          { id: 'deferred', type: 'client', label: 'Deferred', childState: { kind: 'deferred', key: 'later' } },
+        ],
+        edges: [],
+      },
+      true,
+    );
+    expect(laid.nodes[0]?.childState).toEqual({ kind: 'deferred', key: 'later' });
+    expect(laid.nodes[0]?.children).toBeNull();
   });
 
   it('routes nested edges orthogonally as well', async () => {

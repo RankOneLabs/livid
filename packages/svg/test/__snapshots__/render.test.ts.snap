@@ -1,0 +1,68 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`pipeline regression > keeps the existing fixture byte-identical without theme overrides 1`] = `
+{
+  "fingerprint": "1f0e85o",
+  "height": 502,
+  "svg": "<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="502" viewBox="0 0 1160 502">
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+<g transform="translate(32,32)">
+<polyline class="livid-edge" data-type="flow" data-line="main" data-kind="track" points="164,56 260,56" fill="none" stroke="#D64500" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline class="livid-edge" data-type="flow" data-line="main" data-kind="track" points="420,56 516,56" fill="none" stroke="#D64500" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline class="livid-edge" data-type="flow" data-line="main" data-kind="track" points="588,68 612,68 612,168 700,168" fill="none" stroke="#D64500" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline class="livid-edge" data-type="flow" data-line="main" data-kind="track" points="820,168 932,168" fill="none" stroke="#D64500" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline class="livid-edge" data-type="flow" data-line="side" data-kind="branch" points="588,44 684,44" fill="none" stroke="#1B6CA8" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="livid-node" data-type="terminal" data-node="entry" data-line="main" >
+<title>entry point — Terminal</title>
+<rect x="12" y="32" width="152" height="48" rx="24" fill="#FFFFFF" stroke="#D64500" stroke-width="2.5"/>
+<text x="88" y="60.33" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">entry point</text>
+</g>
+<g class="livid-node" data-type="work" data-node="process" data-line="main" >
+<title>process — Work — embedded child diagram</title>
+<rect x="260" y="28" width="160" height="56" fill="#FFFFFF" stroke="#D64500" stroke-width="2.5"/>
+<text x="340" y="60.33" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">process</text>
+</g>
+<g class="livid-node" data-type="junction" data-node="fork" data-line="main" >
+<title>fork — Junction</title>
+<circle cx="552" cy="56" r="36" fill="#FFFFFF" stroke="#D64500" stroke-width="2.5"/>
+<circle cx="552" cy="56" r="4" fill="#D64500"/>
+<line x1="552" y1="92" x2="552" y2="106" stroke="#D64500" stroke-width="2.5" stroke-linecap="round"/>
+<text x="552" y="125" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">fork</text>
+</g>
+<g class="livid-node" data-type="decision" data-node="check" data-line="main" >
+<title>a very long decision name — Decision</title>
+<polygon points="760,124 820,168 760,212 700,168" fill="#FFFFFF" stroke="#D64500" stroke-width="2.5"/>
+<rect x="758.5" y="162" width="3" height="12" rx="1.5" fill="#D64500"/>
+<line x1="760" y1="212" x2="760" y2="226" stroke="#D64500" stroke-width="2.5" stroke-linecap="round"/>
+<text x="760" y="245" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">a very long decision name</text>
+</g>
+<g class="livid-node" data-type="observer" data-node="watcher" data-line="side" >
+<title>watcher — Observer</title>
+<polygon points="711.36,12 808.64,12 836,44 808.64,76 711.36,76 684,44" fill="#FFFFFF" stroke="#1B6CA8" stroke-width="2.5"/>
+<text x="760" y="48.33" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">watcher</text>
+</g>
+<g class="livid-node" data-type="terminal" data-node="exit" data-line="main" >
+<title>exit point — Terminal</title>
+<rect x="932" y="144" width="152" height="48" rx="24" fill="#FFFFFF" stroke="#D64500" stroke-width="2.5"/>
+<text x="1008" y="172.33" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">exit point</text>
+</g>
+</g>
+<line x1="44" y1="331" x2="1116" y2="331" stroke="#D8DCE3" stroke-width="1"/>
+<text x="44" y="390" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#6B7280">process</text>
+<g transform="translate(32,390)">
+<polyline class="livid-edge" data-type="flow" data-line="inner" data-kind="track" points="172,40 268,40" fill="none" stroke="#D64500" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="livid-node" data-type="work" data-node="step-one" data-line="inner" >
+<title>step one — Work</title>
+<rect x="12" y="12" width="160" height="56" fill="#FFFFFF" stroke="#D64500" stroke-width="2.5"/>
+<text x="92" y="44.33" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">step one</text>
+</g>
+<g class="livid-node" data-type="work" data-node="step-two" data-line="inner" >
+<title>step two — Work</title>
+<rect x="268" y="12" width="160" height="56" fill="#FFFFFF" stroke="#D64500" stroke-width="2.5"/>
+<text x="348" y="44.33" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">step two</text>
+</g>
+</g>
+</svg>",
+  "width": 1160,
+}
+`;

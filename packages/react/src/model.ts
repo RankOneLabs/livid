@@ -1,8 +1,10 @@
 import type {
   AnyRegistry,
+  ChildState,
   EdgeId,
   Glyph,
   LaidOutDiagram,
+  LaidOutEdgeLabel,
   NodeId,
   NodeShape,
   Point,
@@ -25,6 +27,11 @@ export interface ReactNodeData extends Readonly<Record<string, unknown>> {
   readonly tint: StateTint | null;
   readonly animation: StateAnimation | null;
   readonly hasChildren: boolean;
+  readonly childState: ChildState;
+}
+
+export interface ReactEdgeLabel extends LaidOutEdgeLabel {
+  readonly text: string;
 }
 
 export interface ReactEdgeData extends Readonly<Record<string, unknown>> {
@@ -34,6 +41,7 @@ export interface ReactEdgeData extends Readonly<Record<string, unknown>> {
   readonly route: readonly Point[];
   readonly tint: StateTint | null;
   readonly animation: StateAnimation | null;
+  readonly label: ReactEdgeLabel | null;
 }
 
 export interface ReactNodeModel {
@@ -48,6 +56,7 @@ export interface ReactEdgeModel {
   readonly id: EdgeId;
   readonly source: NodeId;
   readonly target: NodeId;
+  readonly markerEnd?: 'arrowclosed';
   readonly data: ReactEdgeData;
 }
 
@@ -58,9 +67,30 @@ export interface ReactDiagramModel {
   readonly height: number;
 }
 
+export interface ReactDiagramOptions {
+  /** Draw direction even when the diagram does not use dependency semantics. */
+  readonly showDirection?: boolean;
+}
+
 interface ResolvedVisual {
   readonly tint: StateTint | null;
   readonly animation: StateAnimation | null;
+}
+
+const EXTERNAL_LABEL_GAP = 18;
+const ESTIMATED_LABEL_CHAR_WIDTH = 9;
+
+function widthIncludingExternalLabels(
+  width: number,
+  nodes: readonly ReactNodeModel[],
+): number {
+  return nodes.reduce((current, node) => {
+    if (node.data.shape !== 'circle' && node.data.shape !== 'diamond') return current;
+    const labelRight =
+      node.position.x + node.width + EXTERNAL_LABEL_GAP +
+      node.data.label.length * ESTIMATED_LABEL_CHAR_WIDTH;
+    return Math.max(current, labelRight);
+  }, width);
 }
 
 function visualOf(states: StateDeclarations | undefined, state: string | undefined): ResolvedVisual {
@@ -72,6 +102,7 @@ function visualOf(states: StateDeclarations | undefined, state: string | undefin
 export function toReactDiagram<R extends AnyRegistry>(
   diagram: LaidOutDiagram<R>,
   frame: StateFrame,
+  options: ReactDiagramOptions = {},
 ): ReactDiagramModel {
   const nodes = diagram.nodes.map((placed): ReactNodeModel => {
     const type = diagram.registry.nodeTypes[placed.node.type];
@@ -90,17 +121,25 @@ export function toReactDiagram<R extends AnyRegistry>(
         glyph: type?.glyph ?? 'none',
         tint: visual.tint,
         animation: visual.animation,
-        hasChildren: placed.children !== null,
+        hasChildren: placed.childState.kind !== 'leaf',
+        childState: placed.childState,
       },
     };
   });
   const edges = diagram.edges.map((placed): ReactEdgeModel => {
     const type = diagram.registry.edgeTypes[placed.edge.type];
     const visual = visualOf(type?.states, frame.edges[placed.edge.id]);
+    const label = placed.label === null || placed.edge.label === null
+      ? null
+      : { text: placed.edge.label, ...placed.label };
+    const markerEnd: ReactEdgeModel['markerEnd'] = 'arrowclosed';
     return {
       id: placed.edge.id,
       source: placed.edge.source,
       target: placed.edge.target,
+      ...((diagram.profile === 'dependency' || options.showDirection === true)
+        ? { markerEnd }
+        : {}),
       data: {
         entityId: placed.edge.id,
         typeLabel: type?.label ?? placed.edge.type,
@@ -108,8 +147,14 @@ export function toReactDiagram<R extends AnyRegistry>(
         route: placed.route,
         tint: visual.tint,
         animation: visual.animation,
+        label,
       },
     };
   });
-  return { nodes, edges, width: diagram.bounds.width, height: diagram.bounds.height };
+  return {
+    nodes,
+    edges,
+    width: widthIncludingExternalLabels(diagram.bounds.width, nodes),
+    height: diagram.bounds.height,
+  };
 }
