@@ -24,11 +24,13 @@ export {
   type NodeId,
   type EdgeId,
   type LineId,
+  type DeferredKey,
   type DiagramPath,
   ROOT_PATH,
   nodeId,
   edgeId,
   lineId,
+  deferredKey,
   descend,
   formatPath,
 } from './ids.js';
@@ -61,8 +63,11 @@ export { type StandardSchemaV1 } from './standard-schema.js';
 
 export type {
   DiagramSpec,
+  SemanticsProfile,
   LineSpec,
   NodeSpec,
+  NodeChildStateSpec,
+  ChildState,
   EdgeSpec,
   Line,
   ValidNode,
@@ -72,6 +77,7 @@ export type {
   Size,
   LaidOutNode,
   LaidOutEdge,
+  LaidOutEdgeLabel,
   LaidOutDiagram,
 } from './types.js';
 
@@ -90,6 +96,7 @@ export {
   type LayoutSpacing,
   type NodeSizeConfig,
   type LayoutOptions,
+  CORE_ROUTING_OPTIONS,
   layout,
   layoutDeep,
 } from './layout.js';

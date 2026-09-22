@@ -1,4 +1,4 @@
-import type { EdgeId, LineId, NodeId } from './ids.js';
+import type { DeferredKey, EdgeId, LineId, NodeId } from './ids.js';
 import type { AnyRegistry, EdgeDetailOf, EdgeTypeKey, NodeDetailOf, NodeTypeKey } from './registry.js';
 
 /* ------------------------------------------------------------------ *
@@ -11,7 +11,10 @@ import type { AnyRegistry, EdgeDetailOf, EdgeTypeKey, NodeDetailOf, NodeTypeKey 
  * shape depends on `type`, which has not been checked yet. Type safety on the
  * way in is the projection's job; type safety on the way out is validation's.
  */
+export type SemanticsProfile = 'pipeline' | 'dependency';
+
 export interface DiagramSpec {
+  readonly profile?: SemanticsProfile;
   readonly lines?: readonly LineSpec[];
   readonly nodes: readonly NodeSpec[];
   readonly edges: readonly EdgeSpec[];
@@ -32,7 +35,17 @@ export interface NodeSpec {
   readonly detail?: unknown;
   /** A node's guts are themselves a diagram. This is the drill-down. */
   readonly children?: DiagramSpec | null;
+  readonly childState?: NodeChildStateSpec;
 }
+
+export type NodeChildStateSpec =
+  | { readonly kind: 'embedded'; readonly diagram: DiagramSpec }
+  | { readonly kind: 'deferred'; readonly key: string };
+
+export type ChildState =
+  | { readonly kind: 'leaf' }
+  | { readonly kind: 'embedded' }
+  | { readonly kind: 'deferred'; readonly key: DeferredKey };
 
 export interface EdgeSpec {
   readonly id: string;
@@ -64,6 +77,8 @@ export type ValidNode<R extends AnyRegistry> = {
     readonly label: string;
     readonly line: LineId | null;
     readonly detail: NodeDetailOf<R, K>;
+    readonly childState: ChildState;
+    /** Derived from an embedded child declaration; null for leaf and deferred nodes. */
     readonly children: ValidDiagram<R> | null;
   };
 }[NodeTypeKey<R>];
@@ -85,6 +100,7 @@ export type ValidEdge<R extends AnyRegistry> = {
  */
 export interface ValidDiagram<R extends AnyRegistry> {
   readonly __brand: 'ValidDiagram';
+  readonly profile: SemanticsProfile;
   readonly registry: R;
   readonly lines: readonly Line[];
   readonly nodes: readonly ValidNode<R>[];
@@ -108,20 +124,30 @@ export interface Size {
 
 export interface LaidOutNode<R extends AnyRegistry> {
   readonly node: ValidNode<R>;
+  readonly childState: ChildState;
   readonly position: Point;
   readonly size: Size;
-  /** Present only when this node's children were laid out too. */
+  /** Derived and present only after deep layout of an embedded child. */
   readonly children: LaidOutDiagram<R> | null;
+}
+
+export interface LaidOutEdgeLabel {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 export interface LaidOutEdge<R extends AnyRegistry> {
   readonly edge: ValidEdge<R>;
   /** Orthogonal / 45-degree route, source-first. Includes both endpoints. */
   readonly route: readonly Point[];
+  readonly label: LaidOutEdgeLabel | null;
 }
 
 export interface LaidOutDiagram<R extends AnyRegistry> {
   readonly __brand: 'LaidOutDiagram';
+  readonly profile: SemanticsProfile;
   readonly registry: R;
   readonly lines: readonly Line[];
   readonly nodes: readonly LaidOutNode<R>[];

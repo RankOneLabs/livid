@@ -44,6 +44,12 @@ renderer needs deep — a static file has to contain every level it can reveal.
 The React renderer can go shallow and descend on demand, which is what keeps
 large graphs viable.
 
+Every diagram resolves to a semantics profile during validation. `pipeline` is
+the default and preserves flow-oriented router rules. `dependency` is for
+codebase and package graphs: non-router fan-out, cycles, and line changes are
+valid, and declared lines do not propagate across edges. Embedded diagrams
+inherit their parent's resolved profile unless they explicitly override it.
+
 In a loop, declaration order is reading order. A layered layout has to pick
 some edge of every cycle to draw as a return, and livid picks by the order the
 spec lists the nodes: edges that point at an earlier-listed node are the ones
@@ -81,7 +87,7 @@ What *decides* the routing — a gate, a threshold, reading tea leaves — is
 domain semantics living in the router type's detail schema. Core never learns
 the word "gate".
 
-Two invariants follow, and core enforces both:
+Under the `pipeline` profile, two invariants follow, and core enforces both:
 
 - **Fanning out is router-only.** More than one outgoing edge from a
   non-routing node is rejected. Sinks with no outgoing edges stay ordinary.
@@ -92,12 +98,41 @@ The second needs resolved lines, so it runs after inheritance — which is why
 `normalize` returns a `Result` rather than only filling defaults, and why
 `layout` propagates it.
 
+## Child scopes
+
+Nodes declare whether their scope is a `leaf`, `embedded`, or `deferred` through
+resolved `childState`. Existing `children` input remains supported and is
+translated to `{ kind: 'embedded' }`; new projections should use
+`childState: { kind: 'embedded', diagram }`. Deferred scopes use an opaque key:
+
+```ts
+{ childState: { kind: 'deferred', key: 'scope:package-a' } }
+```
+
+Core never fetches deferred data. A host resolves the key and validates the
+returned diagram as a new root. Consequently `layoutDeep()` descends only into
+embedded scopes, and `validateState()` reports entities inside an unloaded
+deferred scope as `unknown_state_entity`. On laid-out nodes, `children` is
+derived: it is non-null only for embedded scopes after deep layout.
+
+## Edge labels and routing
+
+Edge labels are sized with the same conservative character-width estimate used
+for node labels. Their ELK placement is returned as `LaidOutEdge.label`, and
+level bounds include the complete label box. Core also owns the structural
+routing policy: parallel edges are not merged, edge/edge and edge/node spacing
+are explicit, and self-loops receive stable routing options.
+
 ## Vocabulary is configurable
 
 Node and edge types are registered, not hardcoded. Core enforces *discipline*
 — a cardinality limit, shape-carries-type, colour-carries-line — not membership.
 A pipeline standard and a codebase scanner declare different vocabularies and
 both render.
+
+The default cardinality limit is six node types and six edge types. Larger
+dependency vocabularies must opt in deliberately with `ValidateOptions`, for
+example `{ nodeTypeLimit: 10, edgeTypeLimit: 10 }`.
 
 ```ts
 const registry = defineRegistry({

@@ -1,11 +1,27 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
-import type { ElkEdgeSection, ElkExtendedEdge, ElkNode, LayoutOptions as ElkOptions } from 'elkjs/lib/elk-api.js';
+import type {
+  ElkEdgeSection,
+  ElkExtendedEdge,
+  ElkLabel,
+  ElkNode,
+  LayoutOptions as ElkOptions,
+} from 'elkjs/lib/elk-api.js';
 
 import type { DiagramError } from './errors.js';
 import { normalize } from './normalize.js';
 import type { AnyRegistry, NodeShape } from './registry.js';
 import { type Result, ok } from './result.js';
-import type { LaidOutDiagram, LaidOutEdge, LaidOutNode, Point, Size, ValidDiagram, ValidNode } from './types.js';
+import type {
+  LaidOutDiagram,
+  LaidOutEdge,
+  LaidOutEdgeLabel,
+  LaidOutNode,
+  Point,
+  Size,
+  ValidDiagram,
+  ValidEdge,
+  ValidNode,
+} from './types.js';
 
 export type LayoutDirection = 'right' | 'down';
 
@@ -53,6 +69,18 @@ const DEFAULT_SPACING: Required<LayoutSpacing> = { nodeNode: 48, layers: 96, edg
 const DEFAULT_CHAR_WIDTH = 8;
 const DEFAULT_PADDING = 20;
 const DEFAULT_MAX_WIDTH = 280;
+const EDGE_LABEL_HEIGHT = 20;
+const EDGE_LABEL_PADDING = 12;
+
+/** Structural routing choices shared by every renderer. */
+export const CORE_ROUTING_OPTIONS = {
+  mergeEdges: false,
+  edgeEdgeSpacing: 16,
+  edgeNodeSpacing: 24,
+  selfLoopDistribution: 'EQUALLY',
+  selfLoopOrdering: 'SEQUENCED',
+  insideSelfLoops: false,
+} as const;
 
 /**
  * One instance, reused. `elk.bundled` runs in-process with no worker, so there
@@ -121,9 +149,7 @@ async function layoutLevel<R extends AnyRegistry>({
       const size = sizes.get(node.id) ?? DEFAULT_SIZES.rect;
       return { id: node.id, width: size.width, height: size.height };
     }),
-    edges: diagram.edges.map(
-      (edge): ElkExtendedEdge => ({ id: edge.id, sources: [edge.source], targets: [edge.target] }),
-    ),
+    edges: diagram.edges.map((edge) => toElkEdge(edge, options.nodeSize ?? {})),
   };
 
   const result = await elk().layout(graph);
@@ -139,25 +165,46 @@ async function layoutLevel<R extends AnyRegistry>({
 
       return {
         node,
+        childState: node.childState,
         position: { x: box?.x ?? 0, y: box?.y ?? 0 },
         size: { width: box?.width ?? size.width, height: box?.height ?? size.height },
         children:
-          isDeep && node.children !== null
+          isDeep && node.childState.kind === 'embedded' && node.children !== null
             ? await layoutLevel({ diagram: node.children, options, isDeep: true })
             : null,
       };
     }),
   );
 
-  const edges: readonly LaidOutEdge<R>[] = diagram.edges.map((edge) => ({ edge, route: toRoute(routed.get(edge.id)) }));
+  const edges: readonly LaidOutEdge<R>[] = diagram.edges.map((edge) => {
+    const placedEdge = routed.get(edge.id);
+    return { edge, route: toRoute(placedEdge), label: toEdgeLabel(placedEdge) };
+  });
 
   return {
     __brand: 'LaidOutDiagram',
+    profile: diagram.profile,
     registry: diagram.registry,
     lines: diagram.lines,
     nodes,
     edges,
-    bounds: { width: result.width ?? 0, height: result.height ?? 0 },
+    bounds: boundsIncludingLabels({ width: result.width ?? 0, height: result.height ?? 0 }, edges),
+  };
+}
+
+function toElkEdge<R extends AnyRegistry>(edge: ValidEdge<R>, config: NodeSizeConfig): ElkExtendedEdge {
+  const base = { id: edge.id, sources: [edge.source], targets: [edge.target] };
+  if (edge.label === null) return base;
+  const charWidth = config.charWidth ?? DEFAULT_CHAR_WIDTH;
+  return {
+    ...base,
+    labels: [
+      {
+        text: edge.label,
+        width: edge.label.length * charWidth + EDGE_LABEL_PADDING * 2,
+        height: EDGE_LABEL_HEIGHT,
+      },
+    ],
   };
 }
 
@@ -173,6 +220,13 @@ function elkOptions(options: LayoutOptions): ElkOptions {
     'elk.layered.spacing.nodeNodeBetweenLayers': String(spacing.layers),
     'elk.spacing.nodeNode': String(spacing.nodeNode),
     'elk.spacing.edgeNode': String(spacing.edgeNode),
+    'elk.spacing.edgeEdge': String(CORE_ROUTING_OPTIONS.edgeEdgeSpacing),
+    'elk.layered.spacing.edgeEdgeBetweenLayers': String(CORE_ROUTING_OPTIONS.edgeEdgeSpacing),
+    'elk.layered.spacing.edgeNodeBetweenLayers': String(CORE_ROUTING_OPTIONS.edgeNodeSpacing),
+    'elk.layered.mergeEdges': String(CORE_ROUTING_OPTIONS.mergeEdges),
+    'elk.layered.edgeRouting.selfLoopDistribution': CORE_ROUTING_OPTIONS.selfLoopDistribution,
+    'elk.layered.edgeRouting.selfLoopOrdering': CORE_ROUTING_OPTIONS.selfLoopOrdering,
+    'elk.insideSelfLoops.activate': String(CORE_ROUTING_OPTIONS.insideSelfLoops),
     'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
     // A layered layout has to reverse some edge of every cycle before it can
     // rank the nodes. ELK's default picks those edges greedily, so a loop lands
@@ -184,6 +238,30 @@ function elkOptions(options: LayoutOptions): ElkOptions {
     // reading order, which is what a map's author expects anyway.
     'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
   };
+}
+
+function toEdgeLabel(edge: ElkExtendedEdge | undefined): LaidOutEdgeLabel | null {
+  const label: ElkLabel | undefined = edge?.labels?.[0];
+  if (label?.x === undefined || label.y === undefined || label.width === undefined || label.height === undefined) {
+    return null;
+  }
+  return { x: label.x, y: label.y, width: label.width, height: label.height };
+}
+
+function boundsIncludingLabels<R extends AnyRegistry>(
+  bounds: Size,
+  edges: readonly LaidOutEdge<R>[],
+): Size {
+  return edges.reduce(
+    (current, edge) =>
+      edge.label === null
+        ? current
+        : {
+            width: Math.max(current.width, edge.label.x + edge.label.width),
+            height: Math.max(current.height, edge.label.y + edge.label.height),
+          },
+    bounds,
+  );
 }
 
 interface NodeSizeInput<R extends AnyRegistry> {

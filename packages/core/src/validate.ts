@@ -1,9 +1,20 @@
 import type { DetailIssue, DiagramError } from './errors.js';
-import { type DiagramPath, ROOT_PATH, descend, edgeId, lineId, nodeId } from './ids.js';
+import { type DiagramPath, ROOT_PATH, deferredKey, descend, edgeId, lineId, nodeId } from './ids.js';
 import { type Collected, type Result, collected, err, errorsOf, ok, rejected, valuesOf } from './result.js';
 import { type AnyRegistry, edgeTypeKeys, nodeTypeKeys } from './registry.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
-import type { DiagramSpec, EdgeSpec, Line, LineSpec, NodeSpec, ValidDiagram, ValidEdge, ValidNode } from './types.js';
+import type {
+  ChildState,
+  DiagramSpec,
+  EdgeSpec,
+  Line,
+  LineSpec,
+  NodeSpec,
+  SemanticsProfile,
+  ValidDiagram,
+  ValidEdge,
+  ValidNode,
+} from './types.js';
 
 /** Vocabulary discipline defaults. A map stops reading as a map past this. */
 export const DEFAULT_TYPE_LIMIT = 6;
@@ -68,17 +79,21 @@ interface LevelInput<R extends AnyRegistry> {
   readonly registry: R;
   readonly spec: DiagramSpec;
   readonly path: DiagramPath;
+  readonly inheritedProfile?: SemanticsProfile;
 }
 
 /** What every per-item validator needs, grouped rather than passed loose. */
 interface LevelContext<R extends AnyRegistry> {
   readonly registry: R;
   readonly path: DiagramPath;
+  readonly profile: SemanticsProfile;
   readonly lineIds: ReadonlySet<string>;
   readonly declaredNodeIds: ReadonlySet<string>;
 }
 
-function validateLevel<R extends AnyRegistry>({ registry, spec, path }: LevelInput<R>): Level<R> {
+function validateLevel<R extends AnyRegistry>({ registry, spec, path, inheritedProfile }: LevelInput<R>): Level<R> {
+  const resolvedProfile = resolveProfile({ value: spec.profile, inheritedProfile, path });
+  const profile = resolvedProfile.profile;
   const lineSpecs = markFirstOccurrences(spec.lines ?? [], (line) => line.id);
   const lineOutcomes = lineSpecs.map(({ item, isFirst }) => validateLine({ spec: item, isFirst, path }));
   const lines = valuesOf(lineOutcomes);
@@ -87,6 +102,7 @@ function validateLevel<R extends AnyRegistry>({ registry, spec, path }: LevelInp
   const context: LevelContext<R> = {
     registry,
     path,
+    profile,
     lineIds: new Set(lines.map((line) => line.id as string)),
     // Every id that cleared the duplicate check, including nodes that later
     // failed on type or detail — an edge into a node with a bad detail bag is
@@ -103,8 +119,9 @@ function validateLevel<R extends AnyRegistry>({ registry, spec, path }: LevelInp
   const edges = valuesOf(edgeOutcomes);
 
   return {
-    diagram: { __brand: 'ValidDiagram', registry, lines, nodes, edges },
+    diagram: { __brand: 'ValidDiagram', profile, registry, lines, nodes, edges },
     errors: [
+      ...resolvedProfile.errors,
       ...errorsOf(lineOutcomes),
       ...errorsOf(nodeOutcomes),
       ...errorsOf(edgeOutcomes),
@@ -152,17 +169,30 @@ function validateNode<R extends AnyRegistry>({
       ? [{ kind: 'unknown_line', path, nodeId: spec.id, line, known: [...context.lineIds] }]
       : [];
 
+  const id = nodeId(spec.id);
+  const children = resolveChildDeclaration(spec, path);
+  const nested =
+    children.diagram === null
+      ? null
+      : validateLevel({
+          registry,
+          spec: children.diagram,
+          path: descend(path, id),
+          inheritedProfile: context.profile,
+        });
+
   const detail = validateConfig(typeDef.detail, spec.detail);
   if (!detail.ok) {
     return {
       value: null,
-      errors: [...lineErrors, toNodeError({ error: detail.error, path, entityId: spec.id, type: spec.type })],
+      errors: [
+        ...lineErrors,
+        ...children.errors,
+        ...(nested?.errors ?? []),
+        toNodeError({ error: detail.error, path, entityId: spec.id, type: spec.type }),
+      ],
     };
   }
-
-  const id = nodeId(spec.id);
-  const nested =
-    spec.children == null ? null : validateLevel({ registry, spec: spec.children, path: descend(path, id) });
 
   // Cast: every field has been checked against the registry entry for
   // `spec.type`, which is exactly the invariant ValidNode encodes. The union
@@ -174,10 +204,56 @@ function validateNode<R extends AnyRegistry>({
     label: spec.label,
     line: line === null ? null : lineId(line),
     detail: detail.value,
+    childState: children.childState,
     children: nested?.diagram ?? null,
   } as ValidNode<R>;
 
-  return collected(node, [...lineErrors, ...(nested?.errors ?? [])]);
+  return collected(node, [...lineErrors, ...children.errors, ...(nested?.errors ?? [])]);
+}
+
+interface ResolvedProfile {
+  readonly profile: SemanticsProfile;
+  readonly errors: readonly DiagramError[];
+}
+
+interface ProfileResolutionInput {
+  readonly value: unknown;
+  readonly inheritedProfile: SemanticsProfile | undefined;
+  readonly path: DiagramPath;
+}
+
+function resolveProfile({ value, inheritedProfile, path }: ProfileResolutionInput): ResolvedProfile {
+  if (value === undefined) return { profile: inheritedProfile ?? 'pipeline', errors: [] };
+  if (value === 'pipeline' || value === 'dependency') return { profile: value, errors: [] };
+  return {
+    profile: inheritedProfile ?? 'pipeline',
+    errors: [{ kind: 'invalid_profile', path, profile: value }],
+  };
+}
+
+interface ResolvedChildDeclaration {
+  readonly childState: ChildState;
+  readonly diagram: DiagramSpec | null;
+  readonly errors: readonly DiagramError[];
+}
+
+function resolveChildDeclaration(spec: NodeSpec, path: DiagramPath): ResolvedChildDeclaration {
+  const legacy = spec.children ?? null;
+  const errors: readonly DiagramError[] =
+    legacy !== null && spec.childState !== undefined
+      ? [{ kind: 'contradictory_children', path, nodeId: spec.id }]
+      : [];
+
+  if (spec.childState?.kind === 'deferred') {
+    return {
+      childState: { kind: 'deferred', key: deferredKey(spec.childState.key) },
+      diagram: null,
+      errors,
+    };
+  }
+  const embedded = spec.childState?.kind === 'embedded' ? spec.childState.diagram : legacy;
+  if (embedded !== null) return { childState: { kind: 'embedded' }, diagram: embedded, errors };
+  return { childState: { kind: 'leaf' }, diagram: null, errors };
 }
 
 interface EdgeValidationInput<R extends AnyRegistry> {
@@ -252,6 +328,7 @@ function illegalBranches<R extends AnyRegistry>({
   nodes,
   edges,
 }: BranchValidationInput<R>): readonly DiagramError[] {
+  if (context.profile === 'dependency') return [];
   const outgoing = edges.reduce(
     (counts, edge) => counts.set(edge.source, (counts.get(edge.source) ?? 0) + 1),
     new Map<string, number>(),
