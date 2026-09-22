@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { layout, validateDiagram } from '@rankonelabs/livid-core';
+import { layout, validateDiagram, type StateFrame } from '@rankonelabs/livid-core';
 
 import { svLividRegistry, SV_LIVID_VALIDATE_OPTIONS } from '../../../fixtures/sv-livid-v1/registry.js';
 import { svLividV1Spec } from '../../../fixtures/sv-livid-v1/spec.js';
 import { toReactDiagram } from '../src/index.js';
 
-const emptyFrame = { __brand: 'StateFrame', nodes: {}, edges: {} } as const;
+const emptyFrame: StateFrame = { __brand: 'StateFrame', nodes: {}, edges: {} };
 
 async function fixtureModel() {
   const withSelfLoop = {

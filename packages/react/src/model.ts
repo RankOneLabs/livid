@@ -116,12 +116,13 @@ export function toReactDiagram<R extends AnyRegistry>(
     const label = placed.label === null || placed.edge.label === null
       ? null
       : { text: placed.edge.label, ...placed.label };
+    const markerEnd: ReactEdgeModel['markerEnd'] = 'arrowclosed';
     return {
       id: placed.edge.id,
       source: placed.edge.source,
       target: placed.edge.target,
       ...((diagram.profile === 'dependency' || options.showDirection === true)
-        ? { markerEnd: 'arrowclosed' as const }
+        ? { markerEnd }
         : {}),
       data: {
         entityId: placed.edge.id,
