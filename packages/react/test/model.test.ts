@@ -12,6 +12,7 @@ const spec: DiagramSpec = {
   nodes: [{ id: 'a', type: 'unit', label: 'Alpha' }, { id: 'b', type: 'unit', label: 'Beta' }],
   edges: [{ id: 'a-b', type: 'flow', source: 'a', target: 'b' }],
 };
+const emptyChild: DiagramSpec = { nodes: [], edges: [] };
 let diagram: LaidOutDiagram<typeof registry>;
 
 beforeAll(async () => {
@@ -45,5 +46,53 @@ describe('React renderer model', () => {
       node: { tint: 'accent', animation: 'pulse' },
       edge: { tint: 'danger', animation: 'stall' },
     });
+  });
+
+  it('projects child availability from shallow-layout child state', async () => {
+    const valid = validateDiagram(registry, {
+      nodes: [
+        { id: 'embedded', type: 'unit', label: 'Embedded', childState: { kind: 'embedded', diagram: emptyChild } },
+        { id: 'deferred', type: 'unit', label: 'Deferred', childState: { kind: 'deferred', key: 'later' } },
+        { id: 'leaf', type: 'unit', label: 'Leaf' },
+      ],
+      edges: [],
+    });
+    if (!valid.ok) throw new Error(JSON.stringify(valid.error));
+    const laid = await layout(valid.value);
+    if (!laid.ok) throw new Error(JSON.stringify(laid.error));
+
+    const nodes = toReactDiagram(laid.value, { __brand: 'StateFrame', nodes: {}, edges: {} }).nodes;
+    expect(nodes.map(({ data }) => ({ hasChildren: data.hasChildren, childState: data.childState }))).toEqual([
+      { hasChildren: true, childState: { kind: 'embedded' } },
+      { hasChildren: true, childState: { kind: 'deferred', key: 'later' } },
+      { hasChildren: false, childState: { kind: 'leaf' } },
+    ]);
+  });
+
+  it('projects arrowheads for dependency diagrams and explicit direction only', async () => {
+    const dependencyValid = validateDiagram(registry, { ...spec, profile: 'dependency' });
+    if (!dependencyValid.ok) throw new Error(JSON.stringify(dependencyValid.error));
+    const dependencyLaid = await layout(dependencyValid.value);
+    if (!dependencyLaid.ok) throw new Error(JSON.stringify(dependencyLaid.error));
+
+    expect(toReactDiagram(dependencyLaid.value, { __brand: 'StateFrame', nodes: {}, edges: {} }).edges[0]?.markerEnd).toBe('arrowclosed');
+    expect(toReactDiagram(diagram, { __brand: 'StateFrame', nodes: {}, edges: {} }).edges[0]?.markerEnd).toBeUndefined();
+    expect(toReactDiagram(diagram, { __brand: 'StateFrame', nodes: {}, edges: {} }, { showDirection: true }).edges[0]?.markerEnd).toBe('arrowclosed');
+  });
+
+  it('projects edge label text and exact core geometry', async () => {
+    const valid = validateDiagram(registry, {
+      ...spec,
+      edges: [{ id: 'a-b', type: 'flow', source: 'a', target: 'b', label: 'payload' }],
+    });
+    if (!valid.ok) throw new Error(JSON.stringify(valid.error));
+    const laid = await layout(valid.value);
+    if (!laid.ok) throw new Error(JSON.stringify(laid.error));
+
+    expect(toReactDiagram(laid.value, { __brand: 'StateFrame', nodes: {}, edges: {} }).edges[0]?.data.label).toEqual({
+      text: 'payload',
+      ...laid.value.edges[0]?.label,
+    });
+    expect(toReactDiagram(diagram, { __brand: 'StateFrame', nodes: {}, edges: {} }).edges[0]?.data.label).toBeNull();
   });
 });

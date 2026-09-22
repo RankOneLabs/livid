@@ -3,7 +3,9 @@ export {
   toReactDiagram,
   type ReactDiagramModel,
   type ReactEdgeData,
+  type ReactEdgeLabel,
   type ReactEdgeModel,
+  type ReactDiagramOptions,
   type ReactNodeData,
   type ReactNodeModel,
 } from './model.js';
