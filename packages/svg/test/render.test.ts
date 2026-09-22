@@ -22,6 +22,20 @@ beforeAll(async () => {
   diagram = await laidOut();
 });
 
+describe('pipeline regression', () => {
+  it('keeps the existing fixture byte-identical without theme overrides', () => {
+    const figure = renderFigure(diagram);
+    const fingerprint = [...figure.svg]
+      .reduce(
+        (hash, character) => Math.imul(hash ^ (character.codePointAt(0) ?? 0), 0x01000193) >>> 0,
+        0x811c9dc5,
+      )
+      .toString(36);
+
+    expect({ ...figure, fingerprint }).toMatchSnapshot();
+  });
+});
+
 describe('document', () => {
   it('opens an svg with matching width, height, and viewBox', () => {
     const svg = renderSvg(diagram);

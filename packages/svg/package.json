@@ -40,9 +40,9 @@
     "prepublishOnly": "tsc -b --force"
   },
   "peerDependencies": {
-    "@rankonelabs/livid-core": "^0.2.0"
+    "@rankonelabs/livid-core": "^0.3.0"
   },
   "devDependencies": {
-    "@rankonelabs/livid-core": "^0.2.0"
+    "@rankonelabs/livid-core": "^0.3.0"
   }
 }
