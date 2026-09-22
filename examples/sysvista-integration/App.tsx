@@ -5,6 +5,7 @@ import {
   type DeferredKey,
   type DiagramSpec,
   type LaidOutDiagram,
+  type NodeId,
   type StateFrame,
   type ValidateOptions,
 } from '@rankonelabs/livid-core';
@@ -50,7 +51,8 @@ export function App() {
   const [diagram, setDiagram] = useState<LaidOutDiagram<typeof svLividRegistry> | null>(null);
   const [selection, setSelection] = useState<DiagramSelection | null>(null);
   const [inspectorDetail, setInspectorDetail] = useState<unknown>(null);
-  const descendingNodeId = useRef<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const descendingNodeId = useRef<NodeId | null>(null);
 
   useEffect(() => {
     let isCurrent = true;
@@ -74,16 +76,23 @@ export function App() {
   const descend = useCallback(async (request: DescendRequest) => {
     descendingNodeId.current = request.nodeId;
     setSelection(null);
-    if (request.childState.kind === 'deferred') {
-      const nextRoot = await layOut(deferredSpec(request.childState.key));
-      setDiagram(nextRoot);
+    setLoadError(null);
+    try {
+      if (request.childState.kind === 'deferred') {
+        const nextRoot = await layOut(deferredSpec(request.childState.key));
+        setDiagram(nextRoot);
+      }
+    } catch (cause) {
+      setLoadError(cause instanceof Error ? cause.message : 'Unable to load the deferred diagram');
+    } finally {
+      descendingNodeId.current = null;
     }
-    descendingNodeId.current = null;
   }, []);
 
   if (diagram === null) return <p>Loading system map…</p>;
 
   return <main className="sysvista-example">
+    {loadError !== null && <p role="alert">Could not descend: {loadError}</p>}
     <section className="sysvista-canvas">
       <LividDiagram
         diagram={diagram}

@@ -203,6 +203,7 @@ function Canvas<R extends AnyRegistry>({
   const reactFlow = useReactFlow<LividNode, LividEdge>();
   const [isReady, setIsReady] = useState(false);
   const previousDiagram = useRef(diagram);
+  const hasInitializedViewport = useRef(false);
   const model = useMemo(
     () => toReactDiagram(diagram, frame, { showDirection }),
     [diagram, frame, showDirection],
@@ -237,6 +238,18 @@ function Canvas<R extends AnyRegistry>({
     setViewport: reactFlow.setViewport,
   }), [reactFlow.getViewport, reactFlow.setViewport]);
 
+  useEffect(() => {
+    if (!isReady) return;
+    const isInitial = !hasInitializedViewport.current;
+    const hasReplacedDiagram = previousDiagram.current !== diagram;
+    hasInitializedViewport.current = true;
+    previousDiagram.current = diagram;
+    const shouldFit = (isInitial && fitView) || (!isInitial && fitOnReplace && hasReplacedDiagram);
+    if (shouldFit) {
+      void reactFlow.fitBounds({ x: 0, y: 0, width: model.width, height: model.height });
+    }
+  }, [diagram, fitOnReplace, fitView, isReady, model.height, model.width, reactFlow.fitBounds]);
+
   const focusKind = focus?.kind;
   const focusId = focus?.id;
   useEffect(() => {
@@ -262,12 +275,6 @@ function Canvas<R extends AnyRegistry>({
     // and frame replacement must not retrigger camera movement.
   }, [focusId, focusKind, isReady]);
 
-  useEffect(() => {
-    const hasReplacedDiagram = previousDiagram.current !== diagram;
-    previousDiagram.current = diagram;
-    if (isReady && fitOnReplace && hasReplacedDiagram) void reactFlow.fitView();
-  }, [diagram, fitOnReplace, isReady, reactFlow]);
-
   return <div className={`livid-react${className === undefined ? '' : ` ${className}`}`} role="application" aria-label={ariaLabel}>
     <ReactFlow<LividNode, LividEdge>
       nodes={nodes}
@@ -279,7 +286,6 @@ function Canvas<R extends AnyRegistry>({
       elementsSelectable={interactive}
       panOnDrag={interactive}
       zoomOnScroll={interactive}
-      fitView={fitView}
       multiSelectionKeyCode={null}
       onInit={() => setIsReady(true)}
       onNodeClick={(_, node) => {
