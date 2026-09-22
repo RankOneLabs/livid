@@ -62,13 +62,24 @@ viewport unless fitOnReplace is true; frame-only updates never fit or centre.
 For explicit camera persistence, hold a ref:
 
     const diagramRef = useRef<LividDiagramHandle>(null);
-    const saved = diagramRef.current?.getViewport();
+    const savedViewport = useRef<ReturnType<LividDiagramHandle['getViewport']> | null>(null);
 
-    if (saved !== undefined) {
-      await diagramRef.current?.setViewport(saved, { duration: 150 });
-    }
+    const saveViewport = () => {
+      if (diagramRef.current !== null) {
+        savedViewport.current = diagramRef.current.getViewport();
+      }
+    };
+
+    const restoreViewport = async () => {
+      if (diagramRef.current !== null && savedViewport.current !== null) {
+        await diagramRef.current.setViewport(savedViewport.current, { duration: 150 });
+      }
+    };
 
     <LividDiagram ref={diagramRef} diagram={laidOut} frame={frame} />
+
+Call saveViewport and restoreViewport from event handlers or effects, never
+during render.
 
 These methods use XY Flow's Viewport shape: { x, y, zoom }.
 

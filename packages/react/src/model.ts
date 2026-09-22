@@ -77,6 +77,22 @@ interface ResolvedVisual {
   readonly animation: StateAnimation | null;
 }
 
+const EXTERNAL_LABEL_GAP = 18;
+const ESTIMATED_LABEL_CHAR_WIDTH = 9;
+
+function widthIncludingExternalLabels(
+  width: number,
+  nodes: readonly ReactNodeModel[],
+): number {
+  return nodes.reduce((current, node) => {
+    if (node.data.shape !== 'circle' && node.data.shape !== 'diamond') return current;
+    const labelRight =
+      node.position.x + node.width + EXTERNAL_LABEL_GAP +
+      node.data.label.length * ESTIMATED_LABEL_CHAR_WIDTH;
+    return Math.max(current, labelRight);
+  }, width);
+}
+
 function visualOf(states: StateDeclarations | undefined, state: string | undefined): ResolvedVisual {
   const visual = state === undefined ? undefined : states?.[state];
   return { tint: visual?.tint ?? null, animation: visual?.anim ?? null };
@@ -135,5 +151,10 @@ export function toReactDiagram<R extends AnyRegistry>(
       },
     };
   });
-  return { nodes, edges, width: diagram.bounds.width, height: diagram.bounds.height };
+  return {
+    nodes,
+    edges,
+    width: widthIncludingExternalLabels(diagram.bounds.width, nodes),
+    height: diagram.bounds.height,
+  };
 }

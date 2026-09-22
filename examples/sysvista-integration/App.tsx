@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  layout,
+  layoutDeep,
   validateDiagram,
   type DeferredKey,
   type DiagramSpec,
@@ -42,7 +42,7 @@ function deferredSpec(key: DeferredKey): DiagramSpec {
 async function layOut(spec: DiagramSpec): Promise<LaidOutDiagram<typeof svLividRegistry>> {
   const valid = validateDiagram(svLividRegistry, spec, validateOptions);
   if (!valid.ok) throw new Error(valid.error.map((error) => error.kind).join(', '));
-  const laid = await layout(valid.value);
+  const laid = await layoutDeep(valid.value);
   if (!laid.ok) throw new Error(laid.error.map((error) => error.kind).join(', '));
   return laid.value;
 }
@@ -78,7 +78,10 @@ export function App() {
     setSelection(null);
     setLoadError(null);
     try {
-      if (request.childState.kind === 'deferred') {
+      if (request.childState.kind === 'embedded') {
+        const children = diagram?.nodes.find((node) => node.node.id === request.nodeId)?.children;
+        if (children !== null && children !== undefined) setDiagram(children);
+      } else {
         const nextRoot = await layOut(deferredSpec(request.childState.key));
         setDiagram(nextRoot);
       }
@@ -87,7 +90,7 @@ export function App() {
     } finally {
       descendingNodeId.current = null;
     }
-  }, []);
+  }, [diagram]);
 
   if (diagram === null) return <p>Loading system map…</p>;
 

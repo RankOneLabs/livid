@@ -103,6 +103,7 @@ function descendRequestOf(data: LividNodeData): DescendRequest | null {
 function DiagramNode({ data }: NodeProps<LividNode>) {
   const labelIsBeside = data.shape === 'circle' || data.shape === 'diamond';
   const descendRequest = descendRequestOf(data);
+  const requestDescend = data.requestDescend;
   return <div
     className="livid-react-node"
     data-shape={data.shape}
@@ -119,7 +120,7 @@ function DiagramNode({ data }: NodeProps<LividNode>) {
       <span className="livid-react-leader" aria-hidden="true" />
       <span className="livid-react-label livid-react-label-beside">{data.label}</span>
     </>}
-    {descendRequest !== null && <button
+    {descendRequest !== null && requestDescend !== undefined && <button
       type="button"
       className="livid-react-descend nodrag nopan"
       aria-label={`Descend into ${data.label}`}
@@ -128,7 +129,7 @@ function DiagramNode({ data }: NodeProps<LividNode>) {
         // A pointer double-click dispatches two click events. The first click
         // requests descent; ignore the second. Keyboard clicks have detail 0.
         if (event.detail > 1) return;
-        data.requestDescend?.(descendRequest);
+        requestDescend(descendRequest);
       }}
       onDoubleClick={(event) => event.stopPropagation()}
     >⌄</button>}
@@ -224,7 +225,7 @@ function Canvas<R extends AnyRegistry>({
     draggable: false,
     selectable: interactive,
     selected: selection?.kind === 'node' && selection.id === node.id,
-    data: { ...node.data, requestDescend },
+    data: { ...node.data, ...(interactive ? { requestDescend } : {}) },
   })), [interactive, model.nodes, requestDescend, selection]);
   const edges = useMemo<LividEdge[]>(() => model.edges.map((edge) => ({
     ...edge,
@@ -269,7 +270,7 @@ function Canvas<R extends AnyRegistry>({
       onFocusResult?.({ ok: false, error: { kind: 'focusMissing', focus } });
       return;
     }
-    void reactFlow.setCenter(center.x, center.y);
+    void reactFlow.setCenter(center.x, center.y, { zoom: reactFlow.getZoom() });
     onFocusResult?.({ ok: true, value: focus });
     // Deliberately keyed only by the focus target and canvas readiness. Diagram
     // and frame replacement must not retrigger camera movement.
@@ -309,6 +310,7 @@ function Canvas<R extends AnyRegistry>({
       }}
       onPaneClick={() => onSelectionChange?.(null)}
       onNodeDoubleClick={(_, node) => {
+        if (!interactive) return;
         const request = descendRequestOf(node.data);
         if (request !== null) requestDescend(request);
       }}

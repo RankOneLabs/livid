@@ -11,7 +11,11 @@ import {
 } from '@rankonelabs/livid-core';
 
 interface CapturedNode {
-  readonly data: { readonly entityId: NodeId; readonly detail: unknown };
+  readonly data: {
+    readonly entityId: NodeId;
+    readonly detail: unknown;
+    readonly requestDescend?: unknown;
+  };
 }
 
 interface CapturedEdge {
@@ -24,6 +28,7 @@ interface CapturedFlowProps {
   readonly onNodeClick?: (event: unknown, node: CapturedNode) => void;
   readonly onEdgeClick?: (event: unknown, edge: CapturedEdge) => void;
   readonly onPaneClick?: (event: unknown) => void;
+  readonly onNodeDoubleClick?: (event: unknown, node: CapturedNode) => void;
 }
 
 const flowCapture = vi.hoisted<{ props: CapturedFlowProps | null }>(() => ({ props: null }));
@@ -38,6 +43,8 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     },
     useReactFlow: () => ({
       fitView: async () => true,
+      fitBounds: async () => true,
+      getZoom: () => 1,
       getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
       setCenter: async () => true,
       setViewport: async () => true,
@@ -85,6 +92,21 @@ function renderSelectionHarness(
     frame: emptyFrame,
     selection,
     onSelectionChange,
+  }));
+  if (flowCapture.props === null) throw new Error('expected ReactFlow props to be captured');
+  return flowCapture.props;
+}
+
+function renderNonInteractiveHarness(
+  diagram: LaidOutDiagram<typeof svLividRegistry>,
+  onDescendRequest: () => void,
+): CapturedFlowProps {
+  flowCapture.props = null;
+  renderToStaticMarkup(createElement(LividDiagram<typeof svLividRegistry>, {
+    diagram,
+    frame: emptyFrame,
+    interactive: false,
+    onDescendRequest,
   }));
   if (flowCapture.props === null) throw new Error('expected ReactFlow props to be captured');
   return flowCapture.props;
@@ -145,5 +167,20 @@ describe('controlled selection dispatch', () => {
     });
 
     expect(onSelectionChange).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('interaction controls', () => {
+  it('does not expose or request descent when interaction is disabled', async () => {
+    const diagram = await fixtureDiagram();
+    const onDescendRequest = vi.fn();
+    const props = renderNonInteractiveHarness(diagram, onDescendRequest);
+    const embedded = props.nodes.find((node) => node.data.entityId === 'core');
+    if (embedded === undefined) throw new Error('expected embedded fixture node');
+
+    props.onNodeDoubleClick?.({}, embedded);
+
+    expect(embedded.data.requestDescend).toBeUndefined();
+    expect(onDescendRequest).not.toHaveBeenCalled();
   });
 });

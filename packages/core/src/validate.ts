@@ -239,21 +239,58 @@ interface ResolvedChildDeclaration {
 
 function resolveChildDeclaration(spec: NodeSpec, path: DiagramPath): ResolvedChildDeclaration {
   const legacy = spec.children ?? null;
+  const declaration: unknown = spec.childState;
   const errors: readonly DiagramError[] =
-    legacy !== null && spec.childState !== undefined
+    legacy !== null && declaration !== undefined
       ? [{ kind: 'contradictory_children', path, nodeId: spec.id }]
       : [];
 
-  if (spec.childState?.kind === 'deferred') {
+  if (declaration === undefined) {
+    return legacy === null
+      ? { childState: { kind: 'leaf' }, diagram: null, errors }
+      : { childState: { kind: 'embedded' }, diagram: legacy, errors };
+  }
+  if (
+    typeof declaration === 'object' &&
+    declaration !== null &&
+    'kind' in declaration &&
+    declaration.kind === 'deferred' &&
+    'key' in declaration &&
+    typeof declaration.key === 'string'
+  ) {
     return {
-      childState: { kind: 'deferred', key: deferredKey(spec.childState.key) },
+      childState: { kind: 'deferred', key: deferredKey(declaration.key) },
       diagram: null,
       errors,
     };
   }
-  const embedded = spec.childState?.kind === 'embedded' ? spec.childState.diagram : legacy;
-  if (embedded !== null) return { childState: { kind: 'embedded' }, diagram: embedded, errors };
-  return { childState: { kind: 'leaf' }, diagram: null, errors };
+  if (
+    typeof declaration === 'object' &&
+    declaration !== null &&
+    'kind' in declaration &&
+    declaration.kind === 'embedded' &&
+    'diagram' in declaration &&
+    isDiagramSpec(declaration.diagram)
+  ) {
+    return { childState: { kind: 'embedded' }, diagram: declaration.diagram, errors };
+  }
+  return {
+    childState: { kind: 'leaf' },
+    diagram: null,
+    errors: [...errors, { kind: 'invalid_child_state', path, nodeId: spec.id, value: declaration }],
+  };
+}
+
+function isDiagramSpec(value: unknown): value is DiagramSpec {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'nodes' in value &&
+    Array.isArray(value.nodes) &&
+    'edges' in value &&
+    Array.isArray(value.edges) &&
+    (!('lines' in value) || value.lines === undefined || Array.isArray(value.lines))
+  );
 }
 
 interface EdgeValidationInput<R extends AnyRegistry> {

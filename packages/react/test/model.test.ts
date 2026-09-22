@@ -31,6 +31,25 @@ describe('React renderer model', () => {
     );
   });
 
+  it('extends fit bounds to include labels beside fixed-width shapes', async () => {
+    const fixedRegistry = defineRegistry({
+      nodeTypes: {
+        point: { label: 'Point', detail: anything, shape: 'circle', glyph: 'dot', isRouter: false },
+      },
+      edgeTypes: {},
+    });
+    const valid = validateDiagram(fixedRegistry, {
+      nodes: [{ id: 'point', type: 'point', label: 'A long label outside the circle' }],
+      edges: [],
+    });
+    if (!valid.ok) throw new Error(JSON.stringify(valid.error));
+    const laid = await layout(valid.value);
+    if (!laid.ok) throw new Error(JSON.stringify(laid.error));
+
+    const model = toReactDiagram(laid.value, { __brand: 'StateFrame', nodes: {}, edges: {} });
+    expect(model.width).toBeGreaterThan(laid.value.bounds.width);
+  });
+
   it('uses the exact orthogonal edge routes computed by core', () => {
     const model = toReactDiagram(diagram, { __brand: 'StateFrame', nodes: {}, edges: {} });
     expect(model.edges[0]?.data.route).toEqual(diagram.edges[0]?.route);

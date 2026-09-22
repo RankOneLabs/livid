@@ -222,7 +222,7 @@ function elkOptions(options: LayoutOptions): ElkOptions {
     'elk.spacing.edgeNode': String(spacing.edgeNode),
     'elk.spacing.edgeEdge': String(CORE_ROUTING_OPTIONS.edgeEdgeSpacing),
     'elk.layered.spacing.edgeEdgeBetweenLayers': String(CORE_ROUTING_OPTIONS.edgeEdgeSpacing),
-    'elk.layered.spacing.edgeNodeBetweenLayers': String(CORE_ROUTING_OPTIONS.edgeNodeSpacing),
+    'elk.layered.spacing.edgeNodeBetweenLayers': String(spacing.edgeNode),
     'elk.layered.mergeEdges': String(CORE_ROUTING_OPTIONS.mergeEdges),
     'elk.layered.edgeRouting.selfLoopDistribution': CORE_ROUTING_OPTIONS.selfLoopDistribution,
     'elk.layered.edgeRouting.selfLoopOrdering': CORE_ROUTING_OPTIONS.selfLoopOrdering,

@@ -275,10 +275,15 @@ function renderLevel<R extends AnyRegistry>(level: Level<R>, context: RenderCont
   const edges = diagram.edges.map((edge) => renderEdge(edge, edgeContext));
   const nodes = diagram.nodes.map((node) => renderNode(node, nodeContext));
 
-  // Edges first so tracks pass under stations rather than over them.
+  // Routes first so labels cover every track, then nodes so tracks pass under
+  // stations rather than over them.
   return {
     caption: level.caption,
-    markup: [...edges.map((part) => part.markup), ...nodes.map((part) => part.markup)].join('\n'),
+    markup: [
+      ...edges.map((part) => part.markup),
+      ...edges.map((part) => part.labelMarkup),
+      ...nodes.map((part) => part.markup),
+    ].filter((part) => part !== '').join('\n'),
     box: withExtent(unionOf([...edges.map((part) => part.box), ...nodes.map((part) => part.box)])),
   };
 }
@@ -286,6 +291,10 @@ function renderLevel<R extends AnyRegistry>(level: Level<R>, context: RenderCont
 interface Part {
   readonly markup: string;
   readonly box: Box;
+}
+
+interface EdgePart extends Part {
+  readonly labelMarkup: string;
 }
 
 /**
@@ -308,7 +317,7 @@ interface EdgeContext {
  * one line is that line; track leaving a router onto another line already
  * belongs to the new one, which is what makes an interchange read as a change.
  */
-function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeContext): Part {
+function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeContext): EdgePart {
   const { profile, lineOfNode, colourOf, frame, edgeVisuals, theme, arrowhead } = context;
   const sourceLine = lineOfNode.get(edge.edge.source) ?? null;
   const targetLine = lineOfNode.get(edge.edge.target) ?? null;
@@ -320,7 +329,7 @@ function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeCo
 
   // Nothing to draw and nothing to reserve, so the identity box keeps it out
   // of the union rather than pinning it to the origin.
-  if (edge.route.length < 2) return { markup: '', box: EMPTY_BOX };
+  if (edge.route.length < 2) return { markup: '', labelMarkup: '', box: EMPTY_BOX };
 
   const points = edge.route.map((point: Point) => `${round(point.x)},${round(point.y)}`).join(' ');
   const labelBox = edgeLabelBox(edge, theme);
@@ -334,8 +343,8 @@ function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeCo
       stateAttributes(state, visual) +
       `points="${points}" fill="none" stroke="${visual === undefined ? colourOf(targetLine) : theme.palette.states[visual.tint]}" stroke-width="${weight}" ` +
       `stroke-linejoin="round" stroke-linecap="round"` +
-      `${arrowhead === null ? '' : ` ${arrowEndAttr(arrowhead)}`}/>` +
-      edgeLabelMarkup(edge, labelBox, theme),
+      `${arrowhead === null ? '' : ` ${arrowEndAttr(arrowhead)}`}/>`,
+    labelMarkup: edgeLabelMarkup(edge, labelBox, theme),
     box: unionOf([
       boxAround(edge.route, weight / 2),
       headBox({ route: edge.route, strokeWidth: weight, arrowhead }),
@@ -435,7 +444,10 @@ function renderNode<R extends AnyRegistry>(placed: LaidOutNode<R>, context: Node
         `x2="${round(label.leader[1].x)}" y2="${round(label.leader[1].y)}" ` +
         `stroke="${colour}" stroke-width="${theme.metrics.nodeStroke}" stroke-linecap="round"/>`;
 
-  const description = typeDef === undefined ? placed.node.label : `${placed.node.label} — ${typeDef.label}`;
+  const typedDescription = typeDef === undefined ? placed.node.label : `${placed.node.label} — ${typeDef.label}`;
+  const description = placed.childState.kind === 'leaf'
+    ? typedDescription
+    : `${typedDescription} — ${placed.childState.kind} child diagram`;
 
   return {
     markup: [

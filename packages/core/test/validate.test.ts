@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { type DiagramSpec, defineRegistry, validateConfig, validateDiagram } from '../src/index.js';
+import { type DiagramSpec, defineRegistry, formatError, validateConfig, validateDiagram } from '../src/index.js';
 import { anything, asyncSchema, objectWithString, throwingSchema } from './helpers.js';
 
 const registry = defineRegistry({
@@ -114,6 +114,59 @@ describe('validateDiagram', () => {
       'deferred',
     ]);
     expect(result.value.nodes.map((node) => node.children !== null)).toEqual([false, true, true, false]);
+  });
+
+  it.each([
+    ['a null declaration', null],
+    ['an unknown kind', { kind: 'leaf' }],
+    ['an embedded declaration without a diagram', { kind: 'embedded' }],
+    ['an embedded declaration with a malformed diagram', { kind: 'embedded', diagram: null }],
+    ['a deferred declaration without a key', { kind: 'deferred' }],
+    ['a deferred declaration with a non-string key', { kind: 'deferred', key: 42 }],
+  ])('rejects %s as an invalid child state', (_description, childState) => {
+    const spec = {
+      nodes: [{ id: 'scope', type: 'client', label: 'Scope', childState }],
+      edges: [],
+    } as unknown as DiagramSpec;
+    const result = validateDiagram(registry, spec);
+    if (result.ok) throw new Error('expected invalid child state');
+
+    expect(result.error[0]).toEqual({
+      kind: 'invalid_child_state',
+      path: [],
+      nodeId: 'scope',
+      value: childState,
+    });
+  });
+
+  it('keeps nested trace context on an invalid child state', () => {
+    const spec = {
+      nodes: [
+        {
+          id: 'outer',
+          type: 'client',
+          label: 'Outer',
+          childState: {
+            kind: 'embedded',
+            diagram: {
+              nodes: [{ id: 'inner', type: 'client', label: 'Inner', childState: { kind: 'unknown' } }],
+              edges: [],
+            },
+          },
+        },
+      ],
+      edges: [],
+    } as unknown as DiagramSpec;
+    const result = validateDiagram(registry, spec);
+    if (result.ok) throw new Error('expected invalid child state');
+
+    expect(result.error[0]?.kind === 'invalid_child_state' && result.error[0].path).toEqual(['outer']);
+  });
+
+  it('formats an invalid child state without inspecting its untrusted value', () => {
+    expect(formatError({ kind: 'invalid_child_state', path: [], nodeId: 'scope', value: null })).toBe(
+      'node "scope" has an invalid childState declaration',
+    );
   });
 
   it('collects invalid profiles and contradictory child declarations with trace context', () => {

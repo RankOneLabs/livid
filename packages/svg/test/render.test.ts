@@ -664,6 +664,22 @@ describe('dependency profile', () => {
     expect(svg).not.toContain('data-child-state="leaf"');
   });
 
+  it('includes child availability in accessible node descriptions', () => {
+    const svg = renderSvg(dependencyDiagram, { levels: 'root' });
+
+    expect(svg).toContain('<title>embedded — Work — embedded child diagram</title>');
+    expect(svg).toContain('<title>deferred — Work — deferred child diagram</title>');
+    expect(svg).toContain('<title>leaf — Work</title>');
+  });
+
+  it('draws every edge label after every edge route', () => {
+    const svg = renderSvg(dependencyDiagram, { levels: 'root' });
+
+    expect(svg.lastIndexOf('<polyline class="livid-edge"')).toBeLessThan(
+      svg.indexOf('<g class="livid-edge-label"'),
+    );
+  });
+
   it('accepts a light palette across the new label and direction treatment', () => {
     const colours = {
       surface: '#FAFAF7',

@@ -2,7 +2,7 @@
 
 exports[`pipeline regression > keeps the existing fixture byte-identical without theme overrides 1`] = `
 {
-  "fingerprint": "1a6hg39",
+  "fingerprint": "1f0e85o",
   "height": 502,
   "svg": "<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="502" viewBox="0 0 1160 502">
 <rect width="100%" height="100%" fill="#FFFFFF"/>
@@ -18,7 +18,7 @@ exports[`pipeline regression > keeps the existing fixture byte-identical without
 <text x="88" y="60.33" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">entry point</text>
 </g>
 <g class="livid-node" data-type="work" data-node="process" data-line="main" >
-<title>process — Work</title>
+<title>process — Work — embedded child diagram</title>
 <rect x="260" y="28" width="160" height="56" fill="#FFFFFF" stroke="#D64500" stroke-width="2.5"/>
 <text x="340" y="60.33" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="600" fill="#16181D">process</text>
 </g>

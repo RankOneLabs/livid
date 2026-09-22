@@ -1,13 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import process from 'node:process';
-import { pathToFileURL } from 'node:url';
 
 import ts from 'typescript';
 
 import { layout, validateDiagram } from '../packages/core/dist/index.js';
 
-const coreUrl = pathToFileURL(new URL('../packages/core/dist/index.js', import.meta.url).pathname).href;
+const coreUrl = new URL('../packages/core/dist/index.js', import.meta.url).href;
 
 async function loadFixture(relativePath) {
   const source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
