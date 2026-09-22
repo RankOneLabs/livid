@@ -29,10 +29,25 @@ import type {
   StateVisual,
 } from '@rankonelabs/livid-core';
 
-import { type Box, EMPTY_BOX, boxAround, boxOf, placeLabel, unionOf, withExtent } from './geometry.js';
+import {
+  type Box,
+  EMPTY_BOX,
+  boxAround,
+  boxOf,
+  estimateTextWidth,
+  placeLabel,
+  unionOf,
+  withExtent,
+} from './geometry.js';
 import { type Arrowhead, arrowDefsMarkup, arrowEndAttr, arrowheadOf, arrowheadReach } from './markers.js';
 import { childIndicatorMarkup, glyphMarkup, shapeMarkup } from './shapes.js';
-import { type SvgTheme, type SvgThemeOverrides, lineColour, resolveTheme } from './theme.js';
+import {
+  type EdgeArrowhead,
+  type SvgTheme,
+  type SvgThemeOverrides,
+  lineColour,
+  resolveTheme,
+} from './theme.js';
 
 export interface SvgOptions {
   readonly theme?: SvgThemeOverrides;
@@ -89,13 +104,19 @@ export function renderFigure<R extends AnyRegistry>(
     : isObject(frameOrOptions)
       ? frameOrOptions
       : {};
-  const theme = resolveTheme(options.theme, diagram.profile);
-  const { padding, levelGap } = theme.metrics;
-
   const levels = levelsOf(diagram, options.caption ?? null, options.levels !== 'root');
+  const theme = resolveTheme(options.theme);
+  const { padding, levelGap } = theme.metrics;
   const title = options.title ?? null;
-  const arrowhead = arrowheadOf(theme.metrics, () => fingerprintOf({ levels, theme, title }));
-  const renderContext: RenderContext = { frame, theme, arrowhead };
+  const edgeArrowheadOverride = options.theme?.metrics?.edgeArrowhead;
+  const drawsArrowhead =
+    edgeArrowheadOverride === 'target' ||
+    (edgeArrowheadOverride === undefined && levels.some((level) => level.diagram.profile === 'dependency'));
+  const arrowhead = arrowheadOf(
+    { ...theme.metrics, edgeArrowhead: drawsArrowhead ? 'target' : 'none' },
+    () => fingerprintOf({ levels, theme, title }),
+  );
+  const renderContext: RenderContext = { frame, theme, arrowhead, edgeArrowheadOverride };
   const rendered = levels.map((level) => renderLevel(level, renderContext));
 
   const captionHeight = theme.typography.captionSize + theme.metrics.labelGap * 2;
@@ -218,11 +239,14 @@ interface RenderContext {
   readonly frame: StateFrame;
   readonly theme: SvgTheme;
   readonly arrowhead: Arrowhead | null;
+  readonly edgeArrowheadOverride: EdgeArrowhead | undefined;
 }
 
 function renderLevel<R extends AnyRegistry>(level: Level<R>, context: RenderContext): RenderedLevel {
-  const { frame, theme, arrowhead } = context;
+  const { frame, theme, arrowhead, edgeArrowheadOverride } = context;
   const { diagram } = level;
+  const levelArrowhead =
+    edgeArrowheadOverride === undefined && diagram.profile === 'pipeline' ? null : arrowhead;
   const colours = new Map(
     diagram.lines.map((line, index) => [line.id as string, lineColour(theme.palette, line.color, index)]),
   );
@@ -244,7 +268,7 @@ function renderLevel<R extends AnyRegistry>(level: Level<R>, context: RenderCont
     frame,
     edgeVisuals,
     theme,
-    arrowhead,
+    arrowhead: levelArrowhead,
   };
   const nodeContext: NodeContext<R> = { diagram, frame, colourOf, theme };
 
@@ -299,6 +323,7 @@ function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeCo
   if (edge.route.length < 2) return { markup: '', box: EMPTY_BOX };
 
   const points = edge.route.map((point: Point) => `${round(point.x)},${round(point.y)}`).join(' ');
+  const labelBox = edgeLabelBox(edge, theme);
 
   return {
     markup:
@@ -310,24 +335,46 @@ function renderEdge<R extends AnyRegistry>(edge: LaidOutEdge<R>, context: EdgeCo
       `points="${points}" fill="none" stroke="${visual === undefined ? colourOf(targetLine) : theme.palette.states[visual.tint]}" stroke-width="${weight}" ` +
       `stroke-linejoin="round" stroke-linecap="round"` +
       `${arrowhead === null ? '' : ` ${arrowEndAttr(arrowhead)}`}/>` +
-      edgeLabelMarkup(edge, theme),
+      edgeLabelMarkup(edge, labelBox, theme),
     box: unionOf([
       boxAround(edge.route, weight / 2),
       headBox({ route: edge.route, strokeWidth: weight, arrowhead }),
-      edge.label === null ? EMPTY_BOX : boxOf(edge.label, edge.label),
+      labelBox ?? EMPTY_BOX,
     ]),
   };
 }
 
-function edgeLabelMarkup<R extends AnyRegistry>(edge: LaidOutEdge<R>, theme: SvgTheme): string {
-  if (edge.label === null || edge.edge.label === null) return '';
+function edgeLabelBox<R extends AnyRegistry>(edge: LaidOutEdge<R>, theme: SvgTheme): Box | null {
+  if (edge.label === null || edge.edge.label === null) return null;
 
-  const { x, y, width, height } = edge.label;
+  const estimatedWidth =
+    estimateTextWidth(edge.edge.label, theme.typography.labelSize, theme.typography.advanceRatio) +
+    theme.metrics.labelGap * 2;
+  const estimatedHeight = theme.typography.labelSize + theme.metrics.labelGap * 2;
+  const width = Math.max(edge.label.width, estimatedWidth);
+  const height = Math.max(edge.label.height, estimatedHeight);
+  const centreX = edge.label.x + edge.label.width / 2;
+  const centreY = edge.label.y + edge.label.height / 2;
+
+  return {
+    minX: centreX - width / 2,
+    minY: centreY - height / 2,
+    maxX: centreX + width / 2,
+    maxY: centreY + height / 2,
+  };
+}
+
+function edgeLabelMarkup<R extends AnyRegistry>(edge: LaidOutEdge<R>, box: Box | null, theme: SvgTheme): string {
+  if (edge.edge.label === null || box === null) return '';
+
+  const width = box.maxX - box.minX;
+  const height = box.maxY - box.minY;
   return (
     `\n<g class="livid-edge-label" data-edge-id="${escapeAttr(edge.edge.id)}" pointer-events="none">` +
-    `<rect x="${round(x)}" y="${round(y)}" width="${round(width)}" height="${round(height)}" ` +
+    `<rect x="${round(box.minX)}" y="${round(box.minY)}" width="${round(width)}" height="${round(height)}" ` +
     `fill="${theme.palette.edgeLabelBackground}"/>` +
-    `<text x="${round(x + width / 2)}" y="${round(y + height / 2 + theme.typography.labelSize / 3)}" ` +
+    `<text x="${round(box.minX + width / 2)}" ` +
+    `y="${round(box.minY + height / 2 + theme.typography.labelSize / 3)}" ` +
     `text-anchor="middle" font-family="${escapeAttr(theme.typography.fontFamily)}" ` +
     `font-size="${theme.typography.labelSize}" font-weight="${theme.typography.labelWeight}" ` +
     `fill="${theme.palette.label}">${escapeText(edge.edge.label)}</text></g>`

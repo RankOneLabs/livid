@@ -118,8 +118,10 @@ match.
 
 When core supplies a `LaidOutEdge.label` box, the renderer draws the edge's
 label centered in that box. A background rectangle keeps the label readable
-over routes; configure it with `palette.edgeLabelBackground`. Label boxes are
-part of the SVG viewport and figure fingerprint, so an edge label is neither
+over routes; configure it with `palette.edgeLabelBackground`. If theme
+typography needs more room than core reserved, the renderer expands the box
+around its centre. The rendered box is part of the SVG viewport, and core's
+label geometry is part of the figure fingerprint, so an edge label is neither
 clipped nor invisible to consumers that key figures by identity.
 
 Motion is not a renderer option, and that is on purpose. An inline SVG is stylable

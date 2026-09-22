@@ -553,6 +553,45 @@ describe('dependency profile', () => {
     expect(svg).not.toContain('marker-end');
   });
 
+  it('resolves default arrowheads from each stacked level profile', async () => {
+    const nested = (rootProfile: 'pipeline' | 'dependency', childProfile: 'pipeline' | 'dependency') =>
+      laidOut({
+        profile: rootProfile,
+        nodes: [
+          {
+            id: 'parent',
+            type: 'work',
+            label: 'parent',
+            childState: {
+              kind: 'embedded',
+              diagram: {
+                profile: childProfile,
+                nodes: [
+                  { id: 'a', type: 'work', label: 'a' },
+                  { id: 'b', type: 'work', label: 'b' },
+                ],
+                edges: [{ id: 'ab', type: 'flow', source: 'a', target: 'b' }],
+              },
+            },
+          },
+        ],
+        edges: [],
+      });
+
+    const dependencyChild = renderSvg(await nested('pipeline', 'dependency'));
+    const pipelineChild = renderSvg(await nested('dependency', 'pipeline'));
+
+    expect(dependencyChild).toContain('<marker');
+    expect(dependencyChild).toContain('marker-end="url(#');
+    expect(pipelineChild).toContain('<marker');
+    expect(pipelineChild).not.toContain('marker-end="url(#');
+    expect(
+      renderSvg(await nested('dependency', 'pipeline'), {
+        theme: { metrics: { edgeArrowhead: 'target' } },
+      }),
+    ).toContain('marker-end="url(#');
+  });
+
   it('draws labelled edges with a configurable background inside the viewport', () => {
     const background = '#F4F1EA';
     const figure = renderFigure(dependencyDiagram, {
@@ -569,6 +608,30 @@ describe('dependency profile', () => {
     expect((labelled?.label?.x ?? 0) + (labelled?.label?.width ?? 0) + Number(shift?.[1])).toBeLessThanOrEqual(figure.width);
     expect((labelled?.label?.y ?? 0) + Number(shift?.[2])).toBeGreaterThanOrEqual(0);
     expect((labelled?.label?.y ?? 0) + (labelled?.label?.height ?? 0) + Number(shift?.[2])).toBeLessThanOrEqual(figure.height);
+  });
+
+  it('expands an edge label background and viewport for larger theme typography', () => {
+    const labelSize = 40;
+    const advanceRatio = 1;
+    const figure = renderFigure(dependencyDiagram, {
+      levels: 'root',
+      theme: { typography: { labelSize, advanceRatio } },
+    });
+    const label = /<g class="livid-edge-label"[^>]*><rect x="(-?[\d.]+)" y="(-?[\d.]+)" width="([\d.]+)" height="([\d.]+)"/.exec(
+      figure.svg,
+    );
+    const shift = /<g transform="translate\((-?[\d.]+),(-?[\d.]+)\)">/.exec(figure.svg);
+    const x = Number(label?.[1]);
+    const y = Number(label?.[2]);
+    const width = Number(label?.[3]);
+    const height = Number(label?.[4]);
+
+    expect(width).toBeGreaterThanOrEqual('exports'.length * labelSize * advanceRatio);
+    expect(height).toBeGreaterThanOrEqual(labelSize);
+    expect(x + Number(shift?.[1])).toBeGreaterThanOrEqual(0);
+    expect(x + width + Number(shift?.[1])).toBeLessThanOrEqual(figure.width);
+    expect(y + Number(shift?.[2])).toBeGreaterThanOrEqual(0);
+    expect(y + height + Number(shift?.[2])).toBeLessThanOrEqual(figure.height);
   });
 
   it('folds edge label text and geometry into the figure fingerprint', async () => {
