@@ -38,11 +38,12 @@ as shown in **examples/sysvista-integration**.
 ## Selection and inspection
 
 The selection prop is controlled and accepts one DiagramSelection or null.
-onSelectionChange reports node, edge, and cleared selection requests. Feed the
-accepted value back through selection; the renderer uses it to set XY Flow's
-selected node or edge. onSelect continues to report single clicks for
-inspector-style consumers and can be used alongside controlled selection.
-Every selection contains the entity's validated detail.
+Clicking a node or edge reports it directly through onSelectionChange; clicking
+the pane reports null. Feed the accepted value back through selection, which
+sets XY Flow's controlled selected flags. Echoing that value changes only the
+visual selection and does not emit another notification. onSelect receives the
+same node or edge click for inspector-style consumers and can be used alongside
+controlled selection. Every selection contains the entity's validated detail.
 
 Parallel edges retain their core edge ids as distinct XY Flow ids. They keep
 their own detail, route, selected state, and click target even when source and

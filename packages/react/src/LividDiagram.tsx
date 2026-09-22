@@ -125,6 +125,9 @@ function DiagramNode({ data }: NodeProps<LividNode>) {
       aria-label={`Descend into ${data.label}`}
       onClick={(event) => {
         event.stopPropagation();
+        // A pointer double-click dispatches two click events. The first click
+        // requests descent; ignore the second. Keyboard clicks have detail 0.
+        if (event.detail > 1) return;
         data.requestDescend?.(descendRequest);
       }}
       onDoubleClick={(event) => event.stopPropagation()}
@@ -279,21 +282,26 @@ function Canvas<R extends AnyRegistry>({
       fitView={fitView}
       multiSelectionKeyCode={null}
       onInit={() => setIsReady(true)}
-      onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) => {
-        const selectedNode = selectedNodes[0];
-        const selectedEdge = selectedEdges[0];
-        onSelectionChange?.(
-          selectedNode !== undefined
-            ? { kind: 'node', id: selectedNode.data.entityId, detail: selectedNode.data.detail }
-            : selectedEdge?.data === undefined
-              ? null
-              : { kind: 'edge', id: selectedEdge.data.entityId, detail: selectedEdge.data.detail },
-        );
+      onNodeClick={(_, node) => {
+        const next: DiagramSelection = {
+          kind: 'node',
+          id: node.data.entityId,
+          detail: node.data.detail,
+        };
+        onSelectionChange?.(next);
+        onSelect?.(next);
       }}
-      onNodeClick={(_, node) => onSelect?.({ kind: 'node', id: node.data.entityId, detail: node.data.detail })}
       onEdgeClick={(_, edge) => {
-        if (edge.data !== undefined) onSelect?.({ kind: 'edge', id: edge.data.entityId, detail: edge.data.detail });
+        if (edge.data === undefined) return;
+        const next: DiagramSelection = {
+          kind: 'edge',
+          id: edge.data.entityId,
+          detail: edge.data.detail,
+        };
+        onSelectionChange?.(next);
+        onSelect?.(next);
       }}
+      onPaneClick={() => onSelectionChange?.(null)}
       onNodeDoubleClick={(_, node) => {
         const request = descendRequestOf(node.data);
         if (request !== null) requestDescend(request);

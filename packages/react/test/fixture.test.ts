@@ -1,9 +1,53 @@
-import { describe, expect, it } from 'vitest';
-import { layout, validateDiagram, type StateFrame } from '@rankonelabs/livid-core';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  layout,
+  validateDiagram,
+  type EdgeId,
+  type LaidOutDiagram,
+  type NodeId,
+  type StateFrame,
+} from '@rankonelabs/livid-core';
+
+interface CapturedNode {
+  readonly data: { readonly entityId: NodeId; readonly detail: unknown };
+}
+
+interface CapturedEdge {
+  readonly data?: { readonly entityId: EdgeId; readonly detail: unknown };
+}
+
+interface CapturedFlowProps {
+  readonly nodes: readonly CapturedNode[];
+  readonly edges: readonly CapturedEdge[];
+  readonly onNodeClick?: (event: unknown, node: CapturedNode) => void;
+  readonly onEdgeClick?: (event: unknown, edge: CapturedEdge) => void;
+  readonly onPaneClick?: (event: unknown) => void;
+}
+
+const flowCapture = vi.hoisted<{ props: CapturedFlowProps | null }>(() => ({ props: null }));
+
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@xyflow/react')>();
+  return {
+    ...actual,
+    ReactFlow: (props: CapturedFlowProps) => {
+      flowCapture.props = props;
+      return null;
+    },
+    useReactFlow: () => ({
+      fitView: async () => true,
+      getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+      setCenter: async () => true,
+      setViewport: async () => true,
+    }),
+  };
+});
 
 import { svLividRegistry, SV_LIVID_VALIDATE_OPTIONS } from '../../../fixtures/sv-livid-v1/registry.js';
 import { svLividV1Spec } from '../../../fixtures/sv-livid-v1/spec.js';
-import { toReactDiagram } from '../src/index.js';
+import { LividDiagram, toReactDiagram, type DiagramSelection } from '../src/index.js';
 
 const emptyFrame: StateFrame = { __brand: 'StateFrame', nodes: {}, edges: {} };
 
@@ -20,6 +64,30 @@ async function fixtureModel() {
   const laid = await layout(valid.value);
   if (!laid.ok) throw new Error(laid.error.map((error) => error.kind).join(', '));
   return toReactDiagram(laid.value, emptyFrame);
+}
+
+async function fixtureDiagram(): Promise<LaidOutDiagram<typeof svLividRegistry>> {
+  const valid = validateDiagram(svLividRegistry, svLividV1Spec, SV_LIVID_VALIDATE_OPTIONS);
+  if (!valid.ok) throw new Error(valid.error.map((error) => error.kind).join(', '));
+  const laid = await layout(valid.value);
+  if (!laid.ok) throw new Error(laid.error.map((error) => error.kind).join(', '));
+  return laid.value;
+}
+
+function renderSelectionHarness(
+  diagram: LaidOutDiagram<typeof svLividRegistry>,
+  onSelectionChange: (selection: DiagramSelection | null) => void,
+  selection: DiagramSelection | null = null,
+): CapturedFlowProps {
+  flowCapture.props = null;
+  renderToStaticMarkup(createElement(LividDiagram<typeof svLividRegistry>, {
+    diagram,
+    frame: emptyFrame,
+    selection,
+    onSelectionChange,
+  }));
+  if (flowCapture.props === null) throw new Error('expected ReactFlow props to be captured');
+  return flowCapture.props;
 }
 
 describe('React SV-Livid fixture projection', () => {
@@ -40,5 +108,42 @@ describe('React SV-Livid fixture projection', () => {
 
     expect(selfLoop).toMatchObject({ id: 'core-self', source: 'core', target: 'core' });
     expect(selfLoop?.data.route.length).toBeGreaterThan(1);
+  });
+});
+
+describe('controlled selection dispatch', () => {
+  it('reports node clicks, edge clicks, and pane clearing', async () => {
+    const onSelectionChange = vi.fn<(selection: DiagramSelection | null) => void>();
+    const props = renderSelectionHarness(await fixtureDiagram(), onSelectionChange);
+    const node = props.nodes[0];
+    const edge = props.edges[0];
+    if (node === undefined || edge === undefined) throw new Error('expected fixture entities');
+
+    props.onNodeClick?.({}, node);
+    props.onEdgeClick?.({}, edge);
+    props.onPaneClick?.({});
+
+    expect(onSelectionChange.mock.calls).toEqual([
+      [{ kind: 'node', id: node.data.entityId, detail: node.data.detail }],
+      [{ kind: 'edge', id: edge.data?.entityId, detail: edge.data?.detail }],
+      [null],
+    ]);
+  });
+
+  it('does not notify again when the host echoes selection', async () => {
+    const diagram = await fixtureDiagram();
+    const onSelectionChange = vi.fn<(selection: DiagramSelection | null) => void>();
+    const props = renderSelectionHarness(diagram, onSelectionChange);
+    const node = props.nodes[0];
+    if (node === undefined) throw new Error('expected a fixture node');
+
+    props.onNodeClick?.({}, node);
+    renderSelectionHarness(diagram, onSelectionChange, {
+      kind: 'node',
+      id: node.data.entityId,
+      detail: node.data.detail,
+    });
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
   });
 });
